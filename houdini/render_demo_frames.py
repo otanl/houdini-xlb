@@ -67,7 +67,7 @@ def main() -> None:
     renderer.parm("usegeocolor").set(1)
 
     building = solver.parent().node("building0")
-    timeline_frames = (1, 12, 24, 36)
+    timeline_frames = (1, 11, 21, 31, 41, 51, 61, 71, 81, 91, 101, 111, 120)
     metadata: list[dict[str, object]] = []
     frame_index = 0
 

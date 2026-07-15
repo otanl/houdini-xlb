@@ -2,7 +2,7 @@
 
 `houdini_xlb_demo.hip`は、次の最小ループを確認するためのサンプルです。
 
-    animated building Box SOPs (frames 1–36)
+    animated building Box SOPs (frames 1–120, 12 fps)
         → merge / connectivity
         → xlb_init
         → xlb_solver (Prev_Frame → xlb_step → OUT)
@@ -16,7 +16,8 @@
 `xlb_solver`を選択します。停止中にフレームを移動すると自動解析されます。
 `Bake Range`で範囲を先読み
 した後は、タイムライン再生中にキャッシュ済み風速場だけを即時表示します。
-フレームは物理時間ではなく、形態案のインデックスです。
+約10秒かけて建物がゆっくり移動します。フレームは物理時間ではなく、
+形態案のインデックスです。
 
 HIPのSolver／Python SOPには生成したPCのパスが保存されるため、clone後はリポジトリ
 直下で次を実行し、ローカル環境用に再生成してください。

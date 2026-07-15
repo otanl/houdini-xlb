@@ -20,6 +20,9 @@ LENGTH_X = 100.0
 LENGTH_Y = 100.0
 NY = 96
 NX = 96
+START_FRAME = 1
+END_FRAME = 120
+FPS = 12.0
 
 
 def default_worker_python() -> Path:
@@ -57,6 +60,7 @@ def build_scene(
     """Create animated boxes and a Prev_Frame-driven XLB Solver SOP."""
     python_executable = (python_executable or default_worker_python()).resolve()
     cache_dir = (cache_dir or PROJECT_ROOT / "artifacts" / "cache" / "xlb").resolve()
+    hou.setFps(FPS)
     container = hou.node("/obj").createNode("geo", name, run_init_scripts=False)
 
     ground = container.createNode("grid", "ground")
@@ -81,19 +85,19 @@ def build_scene(
 
     _linear_keys(
         boxes[0].parm("tx"),
-        ((1, 24.0), (12, 31.0), (24, 38.0), (36, 28.0)),
+        ((START_FRAME, 24.0), (41, 31.0), (81, 38.0), (END_FRAME, 28.0)),
     )
     _linear_keys(
         boxes[0].parm("sizez"),
-        ((1, 10.0), (12, 15.0), (24, 22.0), (36, 13.0)),
+        ((START_FRAME, 10.0), (41, 15.0), (81, 22.0), (END_FRAME, 13.0)),
     )
     _linear_keys(
         boxes[1].parm("ty"),
-        ((1, 54.0), (12, 62.0), (24, 51.0), (36, 58.0)),
+        ((START_FRAME, 54.0), (41, 62.0), (81, 51.0), (END_FRAME, 58.0)),
     )
     _linear_keys(
         boxes[2].parm("tx"),
-        ((1, 69.0), (12, 63.0), (24, 71.0), (36, 66.0)),
+        ((START_FRAME, 69.0), (41, 63.0), (81, 71.0), (END_FRAME, 66.0)),
     )
 
     merge = container.createNode("merge", "buildings")
@@ -128,6 +132,8 @@ def build_scene(
         python_executable=python_executable,
         refresh_path=result.path(),
     )
+    solver.parm("bakestart").set(START_FRAME)
+    solver.parm("bakeend").set(END_FRAME)
 
     init.parm("python").set(
         sop_code(
@@ -178,13 +184,13 @@ def build_scene(
         "1. Select xlb_solver: Prev_Frame carries wind/state in the Simulation Cache.\n"
         "2. Scrub while paused: the current design auto-analyses after 0.75 s.\n"
         "3. Bake Range fills the SHA cache; playback launches no new XLB jobs.\n"
-        "Frames are design alternatives, not physical CFD time."
+        "120 frames at 12 fps = a slow 10 s design study, not physical CFD time."
     )
     note.setSize(hou.Vector2(5.0, 2.0))
     container.layoutChildren()
-    hou.playbar.setFrameRange(1, 36)
-    hou.playbar.setPlaybackRange(1, 36)
-    hou.setFrame(1)
+    hou.playbar.setFrameRange(START_FRAME, END_FRAME)
+    hou.playbar.setPlaybackRange(START_FRAME, END_FRAME)
+    hou.setFrame(START_FRAME)
     return solver
 
 

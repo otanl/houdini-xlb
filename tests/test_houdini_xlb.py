@@ -151,6 +151,9 @@ def test_demo_builder_uses_real_solver_sop_prev_frame_network():
     assert 'role="init"' in source
     assert 'role="step"' in source
     assert 'role="display"' in source
+    assert "END_FRAME = 120" in source
+    assert "FPS = 12.0" in source
+    assert "hou.setFps(FPS)" in source
     assert "_houdini_xlb_display_state" not in timeline
     assert '("xlb_solver_state", 1)' in timeline
 

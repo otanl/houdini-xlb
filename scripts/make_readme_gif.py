@@ -157,8 +157,8 @@ def main() -> None:
 
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     frames = [compose_frame(work_dir / item["file"], item) for item in metadata]
-    durations = [1200 for _item in metadata]
-    durations[-1] = 1800
+    durations = [800 for _item in metadata]
+    durations[-1] = 1200
 
     output = args.out.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
