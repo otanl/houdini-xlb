@@ -1,4 +1,4 @@
-"""Python-SOP and parameter support for timeline-aware XLB analysis."""
+"""Python-SOP code and controls for the Houdini XLB Solver SOP."""
 
 from __future__ import annotations
 
@@ -13,12 +13,21 @@ package_src = r"__PACKAGE_SRC__"
 if package_src not in sys.path:
     sys.path.insert(0, package_src)
 
-from houdini_xlb.timeline import cook_timeline_sop
+from houdini_xlb.timeline import cook_solver_sop
 
-cook_timeline_sop(
+control_path = r"__CONTROL_PATH__"
+control_node = hou.node(control_path) if control_path else hou.pwd()
+if control_node is None:
+    raise RuntimeError("Houdini XLB control node is missing: " + control_path)
+
+cook_solver_sop(
     hou.pwd(),
+    control_node=control_node,
+    refresh_path=r"__REFRESH_PATH__",
     cache_dir=r"__CACHE_DIR__",
     python_executable=r"__PYTHON_EXE__",
+    merge_buildings=__MERGE_BUILDINGS__,
+    role="__STATE_ROLE__",
 )
 """
 
@@ -28,12 +37,20 @@ def sop_code(
     package_src: str | Path,
     cache_dir: str | Path,
     python_executable: str | Path,
+    control_path: str | None = None,
+    refresh_path: str | None = None,
+    merge_buildings: bool = True,
+    role: str = "display",
 ) -> str:
-    """Render the small Python SOP body with explicit runtime paths."""
+    """Render a Python SOP body for init, step, or display."""
     replacements = {
         "__PACKAGE_SRC__": Path(package_src).resolve().as_posix(),
         "__CACHE_DIR__": Path(cache_dir).resolve().as_posix(),
         "__PYTHON_EXE__": Path(python_executable).resolve().as_posix(),
+        "__CONTROL_PATH__": control_path or "",
+        "__REFRESH_PATH__": refresh_path or "",
+        "__MERGE_BUILDINGS__": repr(bool(merge_buildings)),
+        "__STATE_ROLE__": role,
     }
     code = _SOP_TEMPLATE
     for token, value in replacements.items():
@@ -47,42 +64,74 @@ def _module_callback(
     package_src: str | Path,
     cache_dir: str | Path,
     python_executable: str | Path,
+    refresh_path: str,
 ) -> str:
     package = Path(package_src).resolve().as_posix()
     cache = Path(cache_dir).resolve().as_posix()
     python = Path(python_executable).resolve().as_posix()
-    arguments = (
-        f", cache_dir=r'{cache}', python_executable=r'{python}'" if function == "bake_range" else ""
+    lines = (
+        "import sys",
+        f"package_src = r'{package}'",
+        "if package_src not in sys.path:",
+        "    sys.path.insert(0, package_src)",
+        f"from houdini_xlb.timeline import {function}",
+        (
+            f"{function}(kwargs['node'], "
+            f"cache_dir=r'{cache}', "
+            f"python_executable=r'{python}', "
+            f"refresh_path=r'{refresh_path}')"
+        ),
     )
-    return (
-        "import sys\n"
-        f"package_src = r'{package}'\n"
-        "if package_src not in sys.path:\n"
-        "    sys.path.insert(0, package_src)\n"
-        f"from houdini_xlb.timeline import {function}\n"
-        f"{function}(kwargs['node']{arguments})"
-    )
+    return chr(10).join(lines)
+
+
+def _set_callback(template, code: str) -> None:
+    import hou
+
+    template.setScriptCallback(code)
+    template.setScriptCallbackLanguage(hou.scriptLanguage.Python)
 
 
 def install_parameters(
-    sop,
+    solver,
     *,
     package_src: str | Path,
     cache_dir: str | Path,
     python_executable: str | Path,
+    refresh_path: str,
 ) -> None:
-    """Install automatic analysis, range-bake, and display controls."""
+    """Install automatic analysis, range bake, and display controls on a Solver SOP."""
     import hou
 
-    group = sop.parmTemplateGroup()
-    folder = hou.FolderParmTemplate("xlb", "XLB Timeline")
+    callback = {
+        name: _module_callback(
+            name,
+            package_src=package_src,
+            cache_dir=cache_dir,
+            python_executable=python_executable,
+            refresh_path=refresh_path,
+        )
+        for name in (
+            "run_now",
+            "bake_range",
+            "cancel_bake",
+            "refresh_display",
+            "refresh_solver",
+        )
+    }
+
+    group = solver.parmTemplateGroup()
+    folder = hou.FolderParmTemplate("xlb", "XLB Solver")
 
     auto = hou.ToggleParmTemplate(
         "autoanalyze",
         "Auto Analyze on Pause",
         default_value=True,
     )
-    auto.setHelp("When playback is stopped, analyse the current uncached frame after the debounce.")
+    auto.setHelp(
+        "When playback is stopped, analyse the current uncached Solver frame after the debounce."
+    )
+    _set_callback(auto, callback["refresh_display"])
     folder.addParmTemplate(auto)
     folder.addParmTemplate(
         hou.FloatParmTemplate(
@@ -96,36 +145,15 @@ def install_parameters(
     )
 
     run = hou.ButtonParmTemplate("runxlb", "Run Now (Current Frame)")
-    run.setScriptCallback(
-        "node = kwargs['node']\n"
-        "node.parm('request').set(node.evalParm('request') + 1)\n"
-        "node.cook(force=True)"
-    )
-    run.setScriptCallbackLanguage(hou.scriptLanguage.Python)
+    _set_callback(run, callback["run_now"])
     folder.addParmTemplate(run)
 
     bake = hou.ButtonParmTemplate("bakerange", "Bake Range")
-    bake.setScriptCallback(
-        _module_callback(
-            "bake_range",
-            package_src=package_src,
-            cache_dir=cache_dir,
-            python_executable=python_executable,
-        )
-    )
-    bake.setScriptCallbackLanguage(hou.scriptLanguage.Python)
+    _set_callback(bake, callback["bake_range"])
     folder.addParmTemplate(bake)
 
     cancel = hou.ButtonParmTemplate("cancelbake", "Cancel Bake")
-    cancel.setScriptCallback(
-        _module_callback(
-            "cancel_bake",
-            package_src=package_src,
-            cache_dir=cache_dir,
-            python_executable=python_executable,
-        )
-    )
-    cancel.setScriptCallbackLanguage(hou.scriptLanguage.Python)
+    _set_callback(cancel, callback["cancel_bake"])
     folder.addParmTemplate(cancel)
 
     folder.addParmTemplate(hou.IntParmTemplate("bakestart", "Bake Start", 1, default_value=(1,)))
@@ -140,73 +168,66 @@ def install_parameters(
         )
     )
 
-    request = hou.IntParmTemplate("request", "request", 1, default_value=(0,))
-    request.hide(True)
-    folder.addParmTemplate(request)
-    folder.addParmTemplate(
-        hou.MenuParmTemplate(
-            "profile",
-            "Analysis Profile",
-            ("draft", "preview", "quality"),
-            ("draft", "preview", "quality"),
-            default_value=0,
-        )
+    profile = hou.MenuParmTemplate(
+        "profile",
+        "Analysis Profile",
+        ("draft", "preview", "quality"),
+        ("draft", "preview", "quality"),
+        default_value=0,
     )
-    folder.addParmTemplate(
-        hou.IntParmTemplate(
-            "ny",
-            "Height-map Rows",
-            1,
-            default_value=(96,),
-            min=16,
-            max=1024,
-        )
+    _set_callback(profile, callback["refresh_solver"])
+    folder.addParmTemplate(profile)
+
+    ny = hou.IntParmTemplate(
+        "ny",
+        "Height-map Rows",
+        1,
+        default_value=(96,),
+        min=16,
+        max=1024,
     )
-    folder.addParmTemplate(
-        hou.IntParmTemplate(
-            "nx",
-            "Height-map Cols",
-            1,
-            default_value=(96,),
-            min=16,
-            max=1024,
-        )
+    nx = hou.IntParmTemplate(
+        "nx",
+        "Height-map Cols",
+        1,
+        default_value=(96,),
+        min=16,
+        max=1024,
     )
-    folder.addParmTemplate(
-        hou.FloatParmTemplate(
-            "lengthx",
-            "Domain X [m]",
-            1,
-            default_value=(100.0,),
-            min=1.0,
-        )
+    length_x = hou.FloatParmTemplate(
+        "lengthx",
+        "Domain X [m]",
+        1,
+        default_value=(100.0,),
+        min=1.0,
     )
-    folder.addParmTemplate(
-        hou.FloatParmTemplate(
-            "lengthy",
-            "Domain Y [m]",
-            1,
-            default_value=(100.0,),
-            min=1.0,
-        )
+    length_y = hou.FloatParmTemplate(
+        "lengthy",
+        "Domain Y [m]",
+        1,
+        default_value=(100.0,),
+        min=1.0,
     )
-    folder.addParmTemplate(
-        hou.FloatParmTemplate(
-            "domainheight",
-            "Domain Height [m]",
-            1,
-            default_value=(40.0,),
-            min=1.0,
-        )
+    domain_height = hou.FloatParmTemplate(
+        "domainheight",
+        "Domain Height [m]",
+        1,
+        default_value=(40.0,),
+        min=1.0,
     )
-    folder.addParmTemplate(
-        hou.FloatParmTemplate(
-            "vmax",
-            "Colour Vmax (0=Auto)",
-            1,
-            default_value=(0.0,),
-            min=0.0,
-        )
+    for template in (ny, nx, length_x, length_y, domain_height):
+        _set_callback(template, callback["refresh_solver"])
+        folder.addParmTemplate(template)
+
+    vmax = hou.FloatParmTemplate(
+        "vmax",
+        "Colour Vmax (0=Auto)",
+        1,
+        default_value=(0.0,),
+        min=0.0,
     )
+    _set_callback(vmax, callback["refresh_display"])
+    folder.addParmTemplate(vmax)
+
     group.append(folder)
-    sop.setParmTemplateGroup(group)
+    solver.setParmTemplateGroup(group)

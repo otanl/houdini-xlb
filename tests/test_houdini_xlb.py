@@ -122,12 +122,37 @@ def test_houdini_sop_template_has_no_unresolved_runtime_paths(tmp_path):
         package_src=tmp_path / "src",
         cache_dir=tmp_path / "cache",
         python_executable=tmp_path / "python.exe",
+        control_path="/obj/demo/xlb_solver",
+        refresh_path="/obj/demo/xlb_result",
+        merge_buildings=False,
+        role="step",
     )
     assert "__PACKAGE_SRC__" not in code
     assert "__CACHE_DIR__" not in code
     assert "__PYTHON_EXE__" not in code
-    assert "cook_timeline_sop" in code
+    assert "__CONTROL_PATH__" not in code
+    assert "__REFRESH_PATH__" not in code
+    assert "cook_solver_sop" in code
+    assert 'control_path = r"/obj/demo/xlb_solver"' in code
+    assert 'refresh_path=r"/obj/demo/xlb_result"' in code
+    assert "merge_buildings=False" in code
+    assert 'role="step"' in code
     assert "Run XLB" not in code
+
+
+def test_demo_builder_uses_real_solver_sop_prev_frame_network():
+    root = Path(__file__).parents[1]
+    source = (root / "houdini" / "build_demo_hip.py").read_text(encoding="utf-8")
+    timeline = (root / "src" / "houdini_xlb" / "timeline.py").read_text(encoding="utf-8")
+    assert 'createNode("solver", "xlb_solver")' in source
+    assert 'solver_network.node("Prev_Frame")' in source
+    assert 'solver_network.node("Input_2")' in source
+    assert 'solver_network.node("OUT").setFirstInput(step)' in source
+    assert 'role="init"' in source
+    assert 'role="step"' in source
+    assert 'role="display"' in source
+    assert "_houdini_xlb_display_state" not in timeline
+    assert '("xlb_solver_state", 1)' in timeline
 
 
 def _timeline_job(

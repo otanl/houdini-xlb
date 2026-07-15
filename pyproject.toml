@@ -1,7 +1,7 @@
 [project]
 name = "houdini-xlb"
-version = "0.2.0"
-description = "Timeline-aware cached XLB wind analysis from Houdini geometry."
+version = "0.3.0"
+description = "Solver-SOP timeline integration for cached XLB wind analysis."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { file = "LICENSE" }

@@ -54,7 +54,7 @@ def build_scene(
     python_executable: Path | None = None,
     cache_dir: Path | None = None,
 ) -> hou.SopNode:
-    """Create animated boxes, connectivity, and a timeline-aware XLB Python SOP."""
+    """Create animated boxes and a Prev_Frame-driven XLB Solver SOP."""
     python_executable = (python_executable or default_worker_python()).resolve()
     cache_dir = (cache_dir or PROJECT_ROOT / "artifacts" / "cache" / "xlb").resolve()
     container = hou.node("/obj").createNode("geo", name, run_init_scripts=False)
@@ -105,39 +105,87 @@ def build_scene(
     colour.setFirstInput(connectivity)
     colour.parmTuple("color").set((0.15, 0.55, 0.95))
 
-    xlb = container.createNode("python", "xlb_confirmation")
-    xlb.setInput(0, ground)
-    xlb.setInput(1, colour)
+    init = container.createNode("python", "xlb_init")
+    init.setInput(0, ground)
+    init.setInput(1, colour)
+
+    solver = container.createNode("solver", "xlb_solver")
+    solver.setInput(0, init)
+    solver.setInput(1, colour)
+    solver.parm("startframe").set(1)
+    solver.parm("cacheenabled").set(1)
+    if solver.parm("cachemaxsize") is not None:
+        solver.parm("cachemaxsize").set(512)
+
+    result = container.createNode("python", "xlb_result")
+    result.setInput(0, solver)
+    result.setInput(1, colour)
+
     install_parameters(
-        xlb,
+        solver,
         package_src=PACKAGE_SRC,
         cache_dir=cache_dir,
         python_executable=python_executable,
+        refresh_path=result.path(),
     )
-    xlb.parm("python").set(
+
+    init.parm("python").set(
         sop_code(
             package_src=PACKAGE_SRC,
             cache_dir=cache_dir,
             python_executable=python_executable,
+            control_path=solver.path(),
+            refresh_path=result.path(),
+            merge_buildings=False,
+            role="init",
         )
     )
-    xlb.setDisplayFlag(True)
-    xlb.setRenderFlag(True)
+    solver_network = solver.node("d/s")
+    step = solver_network.createNode("python", "xlb_step")
+    step.setInput(0, solver_network.node("Prev_Frame"))
+    step.setInput(1, solver_network.node("Input_2"))
+    step.parm("python").set(
+        sop_code(
+            package_src=PACKAGE_SRC,
+            cache_dir=cache_dir,
+            python_executable=python_executable,
+            control_path=solver.path(),
+            refresh_path=result.path(),
+            merge_buildings=False,
+            role="step",
+        )
+    )
+    solver_network.node("OUT").setFirstInput(step)
+    solver_network.layoutChildren()
+
+    result.parm("python").set(
+        sop_code(
+            package_src=PACKAGE_SRC,
+            cache_dir=cache_dir,
+            python_executable=python_executable,
+            control_path=solver.path(),
+            refresh_path=result.path(),
+            merge_buildings=True,
+            role="display",
+        )
+    )
+    result.setDisplayFlag(True)
+    result.setRenderFlag(True)
 
     note = container.createStickyNote()
     note.setText(
         "HOUDINI × XLB — TIMELINE DESIGN STUDY\n"
-        "1. Scrub while paused: the current frame auto-analyses after 0.75 s.\n"
-        "2. Bake Range fills the exact geometry/config cache for frames 1–36.\n"
-        "3. Play the timeline: only baked fields display; no CFD launches during playback.\n"
-        "Each frame is a design alternative, not physical simulation time."
+        "1. Select xlb_solver: Prev_Frame carries wind/state in the Simulation Cache.\n"
+        "2. Scrub while paused: the current design auto-analyses after 0.75 s.\n"
+        "3. Bake Range fills the SHA cache; playback launches no new XLB jobs.\n"
+        "Frames are design alternatives, not physical CFD time."
     )
     note.setSize(hou.Vector2(5.0, 2.0))
     container.layoutChildren()
     hou.playbar.setFrameRange(1, 36)
     hou.playbar.setPlaybackRange(1, 36)
     hou.setFrame(1)
-    return xlb
+    return solver
 
 
 def main() -> None:
@@ -173,17 +221,20 @@ def main() -> None:
             "or pass --python-executable"
         )
     output.parent.mkdir(parents=True, exist_ok=True)
-    xlb = build_scene(
+    solver = build_scene(
         python_executable=python_executable,
         cache_dir=args.cache_dir,
     )
+    result = solver.parent().node("xlb_result")
+    if result is None:
+        raise RuntimeError("xlb_result node was not created")
     try:
         try:
-            xlb.cook(force=True)
+            result.cook(force=True)
         except hou.OperationFailed:
-            print("\n".join(xlb.errors()))
+            print("\n".join(result.errors()))
             raise
-        status = xlb.geometry().attribValue("xlb_status")
+        status = result.geometry().attribValue("xlb_status")
         expected_initial = {
             "current",
             "not-baked: pause to analyze or use Bake Range",
@@ -191,20 +242,19 @@ def main() -> None:
         if status not in expected_initial:
             raise RuntimeError(f"unexpected initial XLB SOP status: {status}")
         if args.run_xlb_smoke:
-            xlb.parm("profile").set(0)
-            xlb.parm("request").set(xlb.evalParm("request") + 1)
-            xlb.cook(force=True)
-            status = xlb.geometry().attribValue("xlb_status")
+            solver.parm("profile").set(0)
+            solver.parm("runxlb").pressButton()
+            result.cook(force=True)
+            status = result.geometry().attribValue("xlb_status")
             if status != "current":
                 raise RuntimeError(f"XLB smoke result is not current: {status}")
             print(
                 "XLB smoke current; "
-                f"elapsed={xlb.geometry().attribValue('xlb_elapsed_s'):.3f}s "
-                f"cache_hit={xlb.geometry().attribValue('xlb_cache_hit')}"
+                f"elapsed={result.geometry().attribValue('xlb_elapsed_s'):.3f}s "
+                f"cache_hit={result.geometry().attribValue('xlb_cache_hit')}"
             )
-            xlb.parm("request").set(0)
         hou.hipFile.save(str(output))
-        print(f"saved {output}; verified status={status}; saved request=0")
+        print(f"saved {output}; verified Solver status={status}")
     finally:
         client = getattr(hou.session, "_houdini_xlb_client", None)
         if client is not None:

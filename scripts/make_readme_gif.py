@@ -61,8 +61,8 @@ def compose_frame(field_path: Path, item: dict[str, object]) -> Image.Image:
     heading = font(18, bold=True)
     body = font(17)
     small = font(14)
-    draw.text((panel_x + 24, 28), "HOUDINI + XLB", font=title, fill="#f3f6f8")
-    draw.text((panel_x + 24, 68), "TIMELINE WIND STUDY", font=small, fill="#9ba7b3")
+    draw.text((panel_x + 24, 28), "SOLVER SOP + XLB", font=title, fill="#f3f6f8")
+    draw.text((panel_x + 24, 68), "PREV_FRAME WIND STUDY", font=small, fill="#9ba7b3")
 
     badge = "BAKED"
     badge_fill = "#17864b"
@@ -116,7 +116,7 @@ def compose_frame(field_path: Path, item: dict[str, object]) -> Image.Image:
     )
     draw.text(
         (panel_x + 24, field.height - 28),
-        "GPU LBM · content-addressed cache",
+        "Prev_Frame · GPU LBM cache",
         font=small,
         fill="#6f7c87",
     )

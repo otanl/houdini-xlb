@@ -2,10 +2,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Houdiniで編集・アニメーションした建物や街区形状を、プロジェクト側の
-Python 3.12環境でXLB（GPU Lattice-Boltzmann）へ送り、風速場をHoudiniへ
-戻すための連携層です。停止中のフレームは自動解析し、タイムライン再生中は
-ベイク済みキャッシュだけを即時表示します。
+Houdiniで編集・アニメーションした建物や街区形状を、Solver SOPから
+プロジェクト側のPython 3.12環境へ送り、XLB（GPU Lattice-Boltzmann）の
+風速場をHoudiniへ戻す連携層です。`Prev_Frame`がフレームごとの風速場と
+解析状態を運び、停止中は自動解析、再生中はベイク済み結果だけを表示します。
 Houdini同梱PythonへWarp/XLBを直接インストールしないことが重要な設計判断です。
 
 ![Timeline-driven Houdini massing study with cached XLB fields](docs/assets/houdini_xlb_demo.gif)
@@ -44,7 +44,7 @@ Houdini側へ必要なのはnumpyと軽量クライアントだけで、GPU work
 `/obj/houdini_xlb`内のbuilding Box SOPにはフレーム1、12、24、36の
 キーフレームがあり、各フレームが別の設計案になっています。
 
-1. `xlb_confirmation` SOPを選択します（既定はdraft／Auto Analyze on Pause）。
+1. `xlb_solver` Solver SOPを選択します（既定はdraft／Auto Analyze on Pause）。
 2. タイムラインを停止してスクラブすると、0.75秒後に現在案を自動解析します。
 3. `Bake Range`を押すと、1–36の未解析形状をバックグラウンドで順番に解析します。
 4. 再生中はベイク済みフレームだけが表示され、XLBジョブは新規起動しません。
@@ -52,7 +52,7 @@ Houdini側へ必要なのはnumpyと軽量クライアントだけで、GPU work
 `Run Now (Current Frame)`は、自動解析を待たず現在案を直ちにキューへ入れる
 任意の操作です。通常の形態スタディで毎回押す必要はありません。
 
-HIP内のPython SOPには、生成時の外部Pythonとソースパスが保存されます。
+HIP内のSolver／Python SOPには、生成時の外部Pythonとソースパスが保存されます。
 別のPCへcloneした後は、次のコマンドでそのPC用に一度再生成してください。
 
     $HYTHON = "C:\Program Files\Side Effects Software\Houdini 20.5.xxx\bin\hython.exe"
@@ -87,15 +87,33 @@ versionのSHA-256です。同じ形状が複数フレームに現れる場合、
 - Bake Range: 未キャッシュのユニーク形状を単一workerで順次解析
 - Cancel Bake: 実行中の1件は完了させ、残りの投入を停止
 
-SOPのdetail attribute `xlb_status`、`xlb_job_state`、`xlb_frame`、
-`xlb_bake_done`、`xlb_bake_total`で状態を確認できます。
+Houdini内の構成は実際のSolver SOPです。
+
+    ground → xlb_init → xlb_solver → xlb_result
+                   ↗       ↑             ↖
+          current buildings └─ input 2 ─ current buildings
+
+    xlb_solver/d/s:
+        Prev_Frame ─→ xlb_step ─→ OUT
+        Input_2    ────────↗
+
+`xlb_solver`のSimulation Cacheには、建物を除いた風速グリッドとdetail stateが
+フレームごとに保持されます。`xlb_result`は現在フレームの建物だけを後段で合成するため、
+過去フレームの建物が累積しません。`Reset Simulation`はSolverのフレーム状態を消しますが、
+形状・設定のSHA-256で保存したXLBのNPZキャッシュは再利用されます。範囲ベイク完了時も
+Simulation Cacheを一度リセットし、次のforward再生でNPZから正しいSolver stateを再構築します。
+
+Solver stateと`xlb_result`のdetail attribute `xlb_status`、`xlb_job_state`、
+`xlb_frame`、`xlb_previous_cache_key`、`xlb_bake_done`、`xlb_bake_total`で
+状態を確認できます。
 
 ## 処理の流れ
 
     Houdini timeline / geometry
         → connected-piece rasterization
         → height-map request
-        → debounce / latest-only scheduler
+        → Solver SOP / Prev_Frame state
+        → debounce / latest-only external job queue
         → persistent Python 3.12 worker
         → XLB / NVIDIA Warp
         → atomic NPZ cache
@@ -171,8 +189,8 @@ Houdiniを介さず、同じ常駐workerと実XLBを確認:
 
 - src/houdini_xlb
 - package内の高さマップXLB backend
-- 最小のHoudiniサンプルHIP／Python SOP
-- worker/cache/timeline scheduler/rasterizationのCPUテスト
+- 最小のHoudiniサンプルHIP／Solver SOP
+- worker/cache/Solver timeline scheduler/rasterizationのCPUテスト
 
 FNOの学習実験、木密更新ロジック、OpenFOAM比較はこの配布物へ含めません。
 このリポジトリはMIT Licenseです。XLB本体はApache-2.0です。

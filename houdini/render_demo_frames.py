@@ -43,12 +43,15 @@ def main() -> None:
         raise FileNotFoundError(f"external Python not found: {python_executable}")
 
     hou.hipFile.clear(suppress_save_prompt=True)
-    xlb = build_scene(
+    solver = build_scene(
         python_executable=python_executable,
         cache_dir=args.cache_dir,
     )
-    xlb.parm("profile").set(0)
-    xlb.parm("vmax").set(args.vmax)
+    result = solver.parent().node("xlb_result")
+    if result is None:
+        raise RuntimeError("xlb_result node was not created")
+    solver.parm("profile").set(0)
+    solver.parm("vmax").set(args.vmax)
 
     camera = hou.node("/obj").createNode("cam", "readme_camera")
     camera.parmTuple("t").set((50.0, 50.0, 140.0))
@@ -57,20 +60,20 @@ def main() -> None:
 
     renderer = hou.node("/out").createNode("opengl", "readme_render")
     renderer.parm("camera").set(camera.path())
-    renderer.parm("vobjects").set(xlb.parent().path())
+    renderer.parm("vobjects").set(solver.parent().path())
     renderer.parm("tres").set(1)
     renderer.parm("res1").set(args.size)
     renderer.parm("res2").set(args.size)
     renderer.parm("usegeocolor").set(1)
 
-    building = xlb.parent().node("building0")
+    building = solver.parent().node("building0")
     timeline_frames = (1, 12, 24, 36)
     metadata: list[dict[str, object]] = []
     frame_index = 0
 
     def render(timeline_frame: int, design_index: int) -> None:
         nonlocal frame_index
-        geometry = xlb.geometry()
+        geometry = result.geometry()
         status = str(geometry.attribValue("xlb_status"))
         frame_path = output_dir / f"frame_{frame_index:02d}.png"
         renderer.parm("picture").set(str(frame_path))
@@ -96,9 +99,9 @@ def main() -> None:
     try:
         for design_index, timeline_frame in enumerate(timeline_frames):
             hou.setFrame(timeline_frame)
-            xlb.parm("request").set(xlb.evalParm("request") + 1)
-            xlb.cook(force=True)
-            if xlb.geometry().attribValue("xlb_status") != "current":
+            solver.parm("runxlb").pressButton()
+            result.cook(force=True)
+            if result.geometry().attribValue("xlb_status") != "current":
                 raise RuntimeError("XLB result is not current")
             render(timeline_frame, design_index)
     finally:

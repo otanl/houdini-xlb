@@ -1,9 +1,9 @@
-"""Timeline-aware, asynchronous XLB scheduling for Houdini.
+"""Solver-SOP state and asynchronous XLB scheduling for Houdini.
 
-Houdini's timeline represents design alternatives here, not physical CFD time.
-Only exact cached fields are shown during playback.  Paused frames can be
-analysed automatically after a short debounce, while a range bake fills the
-same content-addressed cache ahead of playback.
+The Houdini timeline represents design alternatives, not physical CFD time.
+The Solver SOP carries the previous displayed field and request metadata through
+Prev_Frame.  XLB itself stays in a persistent external Python worker so a Solver
+cook never blocks Houdini's UI.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ class TimelineJob:
     python_executable: Path
     frame: int
     kind: str = "auto"
+    refresh_path: str | None = None
 
 
 @dataclass
@@ -83,7 +84,7 @@ class TimelineScheduler:
         debounce_s: float = 0.0,
         now: float | None = None,
     ) -> None:
-        """Keep only the newest interactive request for a node."""
+        """Keep only the newest interactive request for a Solver SOP."""
         now = time.monotonic() if now is None else now
         active = self._active
         if (
@@ -118,7 +119,7 @@ class TimelineScheduler:
         self._desired.pop(node_path, None)
 
     def enqueue_bake(self, node_path: str, jobs: list[TimelineJob]) -> int:
-        """Replace a node's bake queue, deduplicating identical geometry."""
+        """Replace a Solver SOP's bake queue and deduplicate equal designs."""
         self.cancel_auto(node_path)
         existing: set[str] = set()
         if self._active is not None and self._active.job.node_path == node_path:
@@ -181,7 +182,7 @@ class TimelineScheduler:
         now: float | None = None,
         allow_submit: bool = True,
     ) -> None:
-        """Poll once and, when idle, submit at most one new job."""
+        """Poll once and, when allowed, submit at most one new XLB job."""
         now = time.monotonic() if now is None else now
         if self._active is not None:
             if not self._active.future.done():
@@ -193,7 +194,7 @@ class TimelineScheduler:
             try:
                 result = active.future.result()
                 self._errors.pop((active.job.node_path, active.job.signature), None)
-            except BaseException as exc:  # surfaced in Houdini's status attribute
+            except BaseException as exc:  # surfaced in xlb_status
                 error = exc
                 self._errors[(active.job.node_path, active.job.signature)] = str(exc)
             if active.job.kind == "bake":
@@ -201,9 +202,7 @@ class TimelineScheduler:
                 self._bake_done[path] = self._bake_done.get(path, 0) + 1
             on_complete(active.job, result, error)
 
-        if not allow_submit:
-            return
-        if self._active is not None:
+        if not allow_submit or self._active is not None:
             return
 
         selected: TimelineJob | None = None
@@ -213,8 +212,7 @@ class TimelineScheduler:
             selected = pending.job
             self._desired.pop(selected.node_path, None)
         elif self._desired:
-            # Preserve interactive responsiveness instead of starting a long bake
-            # during the debounce window.
+            # Do not start a long bake during an interactive debounce window.
             return
         else:
             for node_path in list(self._bake):
@@ -259,7 +257,7 @@ class TimelineScheduler:
 
 
 def session_scheduler() -> TimelineScheduler:
-    """Return the scheduler retained for the current Houdini editor session."""
+    """Return the transient worker queue retained for this Houdini session."""
     import hou
 
     name = "_houdini_xlb_timeline_scheduler"
@@ -268,6 +266,27 @@ def session_scheduler() -> TimelineScheduler:
         scheduler = TimelineScheduler()
         setattr(hou.session, name, scheduler)
     return scheduler
+
+
+def _refresh_node(path: str | None) -> None:
+    if not path:
+        return
+    import hou
+
+    node = hou.node(path)
+    if node is not None:
+        node.cook(force=True)
+
+
+def _resimulate_solver(path: str) -> None:
+    import hou
+
+    node = hou.node(path)
+    if node is None:
+        return
+    reset = node.parm("resimulate")
+    if reset is not None:
+        reset.pressButton()
 
 
 def _houdini_tick(scheduler: TimelineScheduler) -> None:
@@ -285,9 +304,12 @@ def _houdini_tick(scheduler: TimelineScheduler) -> None:
         _result: AnalysisResult | None,
         _error: BaseException | None,
     ) -> None:
-        node = hou.node(job.node_path)
-        if node is not None:
-            node.cook(force=True)
+        done, total = scheduler.bake_progress(job.node_path)
+        bake_finished = job.kind == "bake" and total > 0 and done >= total
+        current_finished = job.frame == int(round(hou.frame())) and not hou.playbar.isPlaying()
+        if bake_finished or current_finished:
+            _resimulate_solver(job.node_path)
+        _refresh_node(job.refresh_path or job.node_path)
 
     scheduler.tick(
         submit,
@@ -297,11 +319,15 @@ def _houdini_tick(scheduler: TimelineScheduler) -> None:
     scheduler.remove_houdini_callback_if_idle()
 
 
-def _analysis_input(node) -> tuple[np.ndarray, XlbConfig]:
+def _building_geometry(node):
     inputs = node.inputs()
-    building_geometry = inputs[1].geometry() if len(inputs) > 1 and inputs[1] is not None else None
-    ny = int(node.evalParm("ny"))
-    nx = int(node.evalParm("nx"))
+    return inputs[1].geometry() if len(inputs) > 1 and inputs[1] is not None else None
+
+
+def _analysis_input(node, control_node) -> tuple[np.ndarray, XlbConfig]:
+    building_geometry = _building_geometry(node)
+    ny = int(control_node.evalParm("ny"))
+    nx = int(control_node.evalParm("nx"))
     if building_geometry is None or len(building_geometry.iterPoints()) == 0:
         heightmap = np.zeros((ny, nx), dtype=np.float32)
     else:
@@ -309,26 +335,27 @@ def _analysis_input(node) -> tuple[np.ndarray, XlbConfig]:
             building_geometry,
             ny=ny,
             nx=nx,
-            length_x=float(node.evalParm("lengthx")),
-            length_y=float(node.evalParm("lengthy")),
-            domain_height_m=float(node.evalParm("domainheight")),
+            length_x=float(control_node.evalParm("lengthx")),
+            length_y=float(control_node.evalParm("lengthy")),
+            domain_height_m=float(control_node.evalParm("domainheight")),
         )
     profiles = ("draft", "preview", "quality")
-    return heightmap, XlbConfig.profile(profiles[int(node.evalParm("profile"))])
+    return heightmap, XlbConfig.profile(profiles[int(control_node.evalParm("profile"))])
 
 
-def _job_for_node(
-    node,
+def _job_for_control(
+    control_node,
     *,
     cache_dir: str | Path,
     python_executable: str | Path,
+    refresh_path: str | None,
     kind: str = "auto",
 ) -> TimelineJob:
     import hou
 
-    heightmap, config = _analysis_input(node)
+    heightmap, config = _analysis_input(control_node, control_node)
     return TimelineJob(
-        node_path=node.path(),
+        node_path=control_node.path(),
         signature=analysis_key(heightmap, config),
         heightmap=heightmap,
         config=config,
@@ -336,6 +363,7 @@ def _job_for_node(
         python_executable=Path(python_executable).resolve(),
         frame=int(round(hou.frame())),
         kind=kind,
+        refresh_path=refresh_path,
     )
 
 
@@ -346,30 +374,60 @@ def _global_attrib(geometry, name: str, default: object) -> None:
         geometry.addAttrib(hou.attribType.Global, name, default)
 
 
+def _previous_field(node, control_node, shape: tuple[int, int]) -> np.ndarray:
+    geometry = node.geometry()
+    attribute = geometry.findPointAttrib("windspeed")
+    field = np.zeros(shape, dtype=np.float32)
+    if attribute is None:
+        return field
+    values = np.asarray(
+        geometry.pointFloatAttribValues("windspeed"),
+        dtype=np.float32,
+    )
+    positions = np.asarray(
+        geometry.pointFloatAttribValues("P"),
+        dtype=np.float64,
+    ).reshape(-1, 3)
+    if len(values) != len(positions) or not len(values):
+        return field
+    ny, nx = shape
+    length_x = float(control_node.evalParm("lengthx"))
+    length_y = float(control_node.evalParm("lengthy"))
+    ix = np.clip((positions[:, 0] / length_x * nx).astype(int), 0, nx - 1)
+    iy = np.clip((positions[:, 1] / length_y * ny).astype(int), 0, ny - 1)
+    np.maximum.at(field, (iy, ix), values)
+    return field
+
+
 def _paint_field(
     node,
+    control_node,
     speed: np.ndarray,
     *,
     stale: bool,
     building_geometry,
+    merge_buildings: bool,
 ) -> None:
     import hou
 
     geometry = node.geometry()
-    length_x = float(node.evalParm("lengthx"))
-    length_y = float(node.evalParm("lengthy"))
+    length_x = float(control_node.evalParm("lengthx"))
+    length_y = float(control_node.evalParm("lengthy"))
     ny, nx = speed.shape
     if geometry.findPointAttrib("Cd") is None:
         geometry.addAttrib(hou.attribType.Point, "Cd", (1.0, 1.0, 1.0))
     if geometry.findPointAttrib("windspeed") is None:
         geometry.addAttrib(hou.attribType.Point, "windspeed", 0.0)
 
-    positions = np.asarray(geometry.pointFloatAttribValues("P"), dtype=np.float64).reshape(-1, 3)
+    positions = np.asarray(
+        geometry.pointFloatAttribValues("P"),
+        dtype=np.float64,
+    ).reshape(-1, 3)
     if len(positions):
         ix = np.clip((positions[:, 0] / length_x * nx).astype(int), 0, nx - 1)
         iy = np.clip((positions[:, 1] / length_y * ny).astype(int), 0, ny - 1)
         point_speed = speed[iy, ix]
-        vmax = float(node.evalParm("vmax"))
+        vmax = float(control_node.evalParm("vmax"))
         if vmax <= 0:
             vmax = max(float(point_speed.max()), 1e-9)
         values = np.clip(point_speed / vmax, 0.0, 1.0)
@@ -390,65 +448,99 @@ def _paint_field(
         )
         if stale:
             colours *= np.asarray([0.62, 0.62, 0.62])
-        geometry.setPointFloatAttribValues("Cd", colours.astype(np.float32).ravel().tolist())
-        geometry.setPointFloatAttribValues("windspeed", point_speed.astype(np.float32).tolist())
-    if building_geometry is not None:
+        geometry.setPointFloatAttribValues(
+            "Cd",
+            colours.astype(np.float32).ravel().tolist(),
+        )
+        geometry.setPointFloatAttribValues(
+            "windspeed",
+            point_speed.astype(np.float32).tolist(),
+        )
+    if merge_buildings and building_geometry is not None:
         geometry.merge(building_geometry)
 
 
-def cook_timeline_sop(
+def _write_state(
     node,
     *,
+    control_path: str,
+    role: str,
+    status: str,
+    job_state: str,
+    signature: str,
+    previous_key: str,
+    stale: int,
+    cache_hit: int,
+    frame: int,
+    done: int,
+    total: int,
+    elapsed_s: float,
+) -> None:
+    geometry = node.geometry()
+    for name, default in (
+        ("xlb_status", ""),
+        ("xlb_job_state", ""),
+        ("xlb_cache_key", ""),
+        ("xlb_previous_cache_key", ""),
+        ("xlb_state_role", ""),
+        ("xlb_owner_path", ""),
+    ):
+        _global_attrib(geometry, name, default)
+    for name, default in (
+        ("xlb_solver_state", 1),
+        ("xlb_stale", 1),
+        ("xlb_cache_hit", 0),
+        ("xlb_frame", 0),
+        ("xlb_bake_done", 0),
+        ("xlb_bake_total", 0),
+    ):
+        _global_attrib(geometry, name, default)
+    _global_attrib(geometry, "xlb_elapsed_s", 0.0)
+    geometry.setGlobalAttribValue("xlb_status", status)
+    geometry.setGlobalAttribValue("xlb_job_state", job_state)
+    geometry.setGlobalAttribValue("xlb_cache_key", signature)
+    geometry.setGlobalAttribValue("xlb_previous_cache_key", previous_key)
+    geometry.setGlobalAttribValue("xlb_state_role", role)
+    geometry.setGlobalAttribValue("xlb_owner_path", control_path)
+    geometry.setGlobalAttribValue("xlb_solver_state", 1)
+    geometry.setGlobalAttribValue("xlb_stale", stale)
+    geometry.setGlobalAttribValue("xlb_cache_hit", cache_hit)
+    geometry.setGlobalAttribValue("xlb_frame", frame)
+    geometry.setGlobalAttribValue("xlb_bake_done", done)
+    geometry.setGlobalAttribValue("xlb_bake_total", total)
+    geometry.setGlobalAttribValue("xlb_elapsed_s", elapsed_s)
+
+
+def cook_solver_sop(
+    node,
+    *,
+    control_node,
+    refresh_path: str | None,
     cache_dir: str | Path,
     python_executable: str | Path,
+    merge_buildings: bool = False,
+    role: str = "solver",
 ) -> None:
-    """Cook the display SOP without ever blocking Houdini's GUI on XLB."""
+    """Cook one Solver-SOP state or its downstream display layer."""
     import hou
 
     cache_dir = Path(cache_dir).resolve()
     python_executable = Path(python_executable).resolve()
-    heightmap, config = _analysis_input(node)
+    heightmap, config = _analysis_input(node, control_node)
     signature = analysis_key(heightmap, config)
     frame = int(round(hou.frame()))
     scheduler = session_scheduler()
-    session = hou.session
-    if not hasattr(session, "_houdini_xlb_display_state"):
-        session._houdini_xlb_display_state = {}
-    states = session._houdini_xlb_display_state
-    state = states.setdefault(
-        node.path(),
-        {"last_request": int(node.evalParm("request"))},
-    )
-    request = int(node.evalParm("request"))
-    manual = request != state["last_request"]
-    state["last_request"] = request
-
+    building_geometry = _building_geometry(node)
+    geometry = node.geometry()
+    old_key_attrib = geometry.findGlobalAttrib("xlb_cache_key")
+    previous_key = str(geometry.attribValue(old_key_attrib)) if old_key_attrib is not None else ""
+    previous = _previous_field(node, control_node, heightmap.shape)
     result = load_cached_heightmap(heightmap, config, cache_dir=cache_dir)
     gui_available = hou.isUIAvailable() and hasattr(hou, "ui")
     playing = bool(hou.playbar.isPlaying()) if gui_available else False
-    building_geometry = (
-        node.inputs()[1].geometry()
-        if len(node.inputs()) > 1 and node.inputs()[1] is not None
-        else None
-    )
-
-    if result is None and manual and not gui_available:
-        # Hython has no UI event loop, so explicit smoke/build requests remain usable.
-        result = session_client(
-            cache_dir=cache_dir,
-            python_executable=python_executable,
-        ).analyze(heightmap, config)
 
     if result is not None:
-        scheduler.cancel_auto(node.path())
-        state.update(
-            {
-                "signature": signature,
-                "speed": result.speed,
-                "cache_hit": result.cache_hit,
-                "elapsed_s": result.elapsed_s,
-            }
-        )
+        scheduler.cancel_auto(control_node.path())
         speed = np.asarray(result.speed, dtype=np.float32)
         status = "current"
         job_state = "current"
@@ -457,7 +549,7 @@ def cook_timeline_sop(
         elapsed_s = float(result.elapsed_s)
     else:
         job = TimelineJob(
-            node_path=node.path(),
+            node_path=control_node.path(),
             signature=signature,
             heightmap=heightmap,
             config=config,
@@ -465,25 +557,24 @@ def cook_timeline_sop(
             python_executable=python_executable,
             frame=frame,
             kind="auto",
+            refresh_path=refresh_path,
         )
-        collecting = scheduler.is_collecting(node.path())
+        collecting = scheduler.is_collecting(control_node.path())
         if playing:
-            scheduler.cancel_auto(node.path())
+            scheduler.cancel_auto(control_node.path())
         elif (
             gui_available
             and not collecting
-            and (manual or bool(node.evalParm("autoanalyze")))
-            and (
-                manual
-                or scheduler.status(node.path(), signature)
-                not in {"error", "bake-queued"}
-            )
+            and bool(control_node.evalParm("autoanalyze"))
+            and scheduler.status(control_node.path(), signature) not in {"error", "bake-queued"}
         ):
-            debounce = 0.0 if manual else float(node.evalParm("debounce"))
-            scheduler.request(job, debounce_s=debounce)
+            scheduler.request(
+                job,
+                debounce_s=float(control_node.evalParm("debounce")),
+            )
             scheduler.ensure_houdini_callback()
 
-        job_state = scheduler.status(node.path(), signature)
+        job_state = scheduler.status(control_node.path(), signature)
         if collecting:
             job_state = "collecting"
             status = "collecting bake range"
@@ -497,78 +588,130 @@ def cook_timeline_sop(
         elif job_state == "running":
             status = f"running: frame {frame}"
         elif job_state == "error":
-            status = "error: " + scheduler.error(node.path(), signature)
+            status = "error: " + scheduler.error(control_node.path(), signature)
         elif job_state == "cancelled":
             status = "bake cancelled"
         else:
             status = "not-baked: pause to analyze or use Bake Range"
-
-        previous = state.get("speed")
-        speed = (
-            np.asarray(previous, dtype=np.float32)
-            if isinstance(previous, np.ndarray) and previous.shape == heightmap.shape
-            else np.zeros_like(heightmap)
-        )
+        speed = previous
         stale = 1
         cache_hit = 0
-        elapsed_s = float(state.get("elapsed_s", 0.0))
+        elapsed_s = 0.0
 
-    done, total = scheduler.bake_progress(node.path())
-    geometry = node.geometry()
-    for name, default in (
-        ("xlb_status", ""),
-        ("xlb_job_state", ""),
-        ("xlb_cache_key", ""),
-    ):
-        _global_attrib(geometry, name, default)
-    for name, default in (
-        ("xlb_stale", 1),
-        ("xlb_cache_hit", 0),
-        ("xlb_frame", 0),
-        ("xlb_bake_done", 0),
-        ("xlb_bake_total", 0),
-    ):
-        _global_attrib(geometry, name, default)
-    _global_attrib(geometry, "xlb_elapsed_s", 0.0)
-    geometry.setGlobalAttribValue("xlb_status", status)
-    geometry.setGlobalAttribValue("xlb_job_state", job_state)
-    geometry.setGlobalAttribValue("xlb_cache_key", signature)
-    geometry.setGlobalAttribValue("xlb_stale", stale)
-    geometry.setGlobalAttribValue("xlb_cache_hit", cache_hit)
-    geometry.setGlobalAttribValue("xlb_frame", frame)
-    geometry.setGlobalAttribValue("xlb_bake_done", done)
-    geometry.setGlobalAttribValue("xlb_bake_total", total)
-    geometry.setGlobalAttribValue("xlb_elapsed_s", elapsed_s)
-    _paint_field(node, speed, stale=bool(stale), building_geometry=building_geometry)
+    done, total = scheduler.bake_progress(control_node.path())
+    _write_state(
+        node,
+        control_path=control_node.path(),
+        role=role,
+        status=status,
+        job_state=job_state,
+        signature=signature,
+        previous_key=previous_key,
+        stale=stale,
+        cache_hit=cache_hit,
+        frame=frame,
+        done=done,
+        total=total,
+        elapsed_s=elapsed_s,
+    )
+    _paint_field(
+        node,
+        control_node,
+        speed,
+        stale=bool(stale),
+        building_geometry=building_geometry,
+        merge_buildings=merge_buildings,
+    )
 
 
-def bake_range(
+def cook_timeline_sop(
     node,
     *,
     cache_dir: str | Path,
     python_executable: str | Path,
 ) -> None:
-    """Collect animated designs on the main thread, then analyse them sequentially."""
+    """Backward-compatible single-Python-SOP entry point."""
+    cook_solver_sop(
+        node,
+        control_node=node,
+        refresh_path=node.path(),
+        cache_dir=cache_dir,
+        python_executable=python_executable,
+        merge_buildings=True,
+        role="legacy-display",
+    )
+
+
+def run_now(
+    control_node,
+    *,
+    cache_dir: str | Path,
+    python_executable: str | Path,
+    refresh_path: str | None,
+) -> AnalysisResult | None:
+    """Queue the current Solver frame immediately, or run synchronously in hython."""
     import hou
 
-    start = int(node.evalParm("bakestart"))
-    end = int(node.evalParm("bakeend"))
-    step = max(1, int(node.evalParm("bakestep")))
+    job = _job_for_control(
+        control_node,
+        cache_dir=cache_dir,
+        python_executable=python_executable,
+        refresh_path=refresh_path,
+    )
+    cached = load_cached_heightmap(
+        job.heightmap,
+        job.config,
+        cache_dir=job.cache_dir,
+    )
+    if cached is not None:
+        _resimulate_solver(control_node.path())
+        _refresh_node(refresh_path)
+        return cached
+    if not hou.isUIAvailable() or not hasattr(hou, "ui"):
+        result = session_client(
+            cache_dir=job.cache_dir,
+            python_executable=job.python_executable,
+        ).analyze(job.heightmap, job.config)
+        _resimulate_solver(control_node.path())
+        _refresh_node(refresh_path)
+        return result
+
+    scheduler = session_scheduler()
+    scheduler.request(job, debounce_s=0.0)
+    scheduler.ensure_houdini_callback()
+    _refresh_node(refresh_path)
+    return None
+
+
+def bake_range(
+    control_node,
+    *,
+    cache_dir: str | Path,
+    python_executable: str | Path,
+    refresh_path: str | None,
+) -> None:
+    """Collect animated designs, then analyse unique cache misses sequentially."""
+    import hou
+
+    start = int(control_node.evalParm("bakestart"))
+    end = int(control_node.evalParm("bakeend"))
+    step = max(1, int(control_node.evalParm("bakestep")))
     direction = 1 if end >= start else -1
     frames = range(start, end + direction, step * direction)
     scheduler = session_scheduler()
-    scheduler.cancel_auto(node.path())
-    scheduler.begin_collection(node.path())
+    scheduler.cancel_auto(control_node.path())
+    scheduler.begin_collection(control_node.path())
     original_frame = hou.frame()
     jobs: list[TimelineJob] = []
     seen: set[str] = set()
     try:
         for frame in frames:
             hou.setFrame(frame)
-            job = _job_for_node(
-                node,
+            job = _job_for_control(
+                control_node,
                 cache_dir=cache_dir,
                 python_executable=python_executable,
+                refresh_path=refresh_path,
                 kind="bake",
             )
             if job.signature in seen:
@@ -585,16 +728,47 @@ def bake_range(
                 jobs.append(job)
     finally:
         hou.setFrame(original_frame)
-        scheduler.end_collection(node.path())
+        scheduler.end_collection(control_node.path())
 
-    scheduler.enqueue_bake(node.path(), jobs)
+    scheduler.enqueue_bake(control_node.path(), jobs)
     if jobs:
         scheduler.ensure_houdini_callback()
-    node.cook(force=True)
+    else:
+        _resimulate_solver(control_node.path())
+    _refresh_node(refresh_path)
 
 
-def cancel_bake(node) -> None:
-    """Stop submitting range jobs after the currently running XLB call."""
+def cancel_bake(
+    control_node,
+    *,
+    cache_dir: str | Path | None = None,
+    python_executable: str | Path | None = None,
+    refresh_path: str | None = None,
+) -> None:
+    """Stop submitting range jobs after the active XLB call."""
     scheduler = session_scheduler()
-    scheduler.cancel_bake(node.path())
-    node.cook(force=True)
+    scheduler.cancel_bake(control_node.path())
+    _refresh_node(refresh_path)
+
+
+def refresh_display(
+    control_node,
+    *,
+    cache_dir: str | Path | None = None,
+    python_executable: str | Path | None = None,
+    refresh_path: str | None = None,
+) -> None:
+    """Recook only the display layer after a colour or auto-analysis change."""
+    _refresh_node(refresh_path)
+
+
+def refresh_solver(
+    control_node,
+    *,
+    cache_dir: str | Path | None = None,
+    python_executable: str | Path | None = None,
+    refresh_path: str | None = None,
+) -> None:
+    """Reset the Solver simulation when analysis settings change."""
+    _resimulate_solver(control_node.path())
+    _refresh_node(refresh_path)
