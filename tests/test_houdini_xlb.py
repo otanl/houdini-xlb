@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import io
 import json
+from concurrent.futures import Future
 from pathlib import Path
 
 import numpy as np
@@ -12,12 +13,14 @@ from houdini_xlb import (
     XlbConfig,
     analysis_key,
     analyze_heightmap,
+    load_cached_heightmap,
     rasterize_points,
     sop_code,
     worker_environment,
 )
 from houdini_xlb.cli import _configured_profile, _parser
 from houdini_xlb.protocol import RESPONSE
+from houdini_xlb.timeline import TimelineJob, TimelineScheduler
 from houdini_xlb.worker import serve
 
 
@@ -57,9 +60,11 @@ def test_cached_analysis_avoids_second_solver_call(tmp_path):
     config = XlbConfig.profile("draft")
     first = analyze_heightmap(heightmap, config, cache_dir=tmp_path, solver=fake_solver)
     second = analyze_heightmap(heightmap, config, cache_dir=tmp_path, solver=fake_solver)
+    cached = load_cached_heightmap(heightmap, config, cache_dir=tmp_path)
     assert calls == [config.steps]
     assert not first.cache_hit
     assert second.cache_hit
+    assert cached is not None and cached.cache_hit
     np.testing.assert_allclose(first.speed, second.speed)
 
 
@@ -121,7 +126,90 @@ def test_houdini_sop_template_has_no_unresolved_runtime_paths(tmp_path):
     assert "__PACKAGE_SRC__" not in code
     assert "__CACHE_DIR__" not in code
     assert "__PYTHON_EXE__" not in code
-    assert "stale: geometry changed; press Run XLB" in code
+    assert "cook_timeline_sop" in code
+    assert "Run XLB" not in code
+
+
+def _timeline_job(
+    tmp_path: Path,
+    signature: str,
+    *,
+    frame: int,
+    kind: str = "auto",
+) -> TimelineJob:
+    return TimelineJob(
+        node_path="/obj/test/xlb",
+        signature=signature,
+        heightmap=np.zeros((8, 8), dtype=np.float32),
+        config=XlbConfig.profile("draft"),
+        cache_dir=tmp_path,
+        python_executable=tmp_path / "python.exe",
+        frame=frame,
+        kind=kind,
+    )
+
+
+def test_timeline_scheduler_debounces_and_keeps_only_latest(tmp_path):
+    scheduler = TimelineScheduler()
+    submitted = []
+    completed = []
+    futures: dict[str, Future] = {}
+
+    def submit(job):
+        submitted.append(job.signature)
+        future = Future()
+        futures[job.signature] = future
+        return future
+
+    def complete(job, _result, error):
+        completed.append((job.signature, error))
+
+    first = _timeline_job(tmp_path, "first", frame=1)
+    scheduler.request(first, debounce_s=0.75, now=0.0)
+    scheduler.tick(submit, complete, now=0.5)
+    assert submitted == []
+    scheduler.tick(submit, complete, now=0.8)
+    assert submitted == ["first"]
+    assert scheduler.status(first.node_path, first.signature) == "running"
+
+    scheduler.request(_timeline_job(tmp_path, "middle", frame=2), now=0.9)
+    latest = _timeline_job(tmp_path, "latest", frame=3)
+    scheduler.request(latest, now=1.0)
+    assert scheduler.status(latest.node_path, latest.signature) == "queued"
+    futures["first"].set_result(None)
+    scheduler.tick(submit, complete, now=1.0)
+    assert submitted == ["first", "latest"]
+    assert completed == [("first", None)]
+
+
+def test_timeline_bake_deduplicates_and_cancel_stops_after_active(tmp_path):
+    scheduler = TimelineScheduler()
+    submitted = []
+    future = Future()
+
+    def submit(job):
+        submitted.append(job.signature)
+        return future
+
+    jobs = [
+        _timeline_job(tmp_path, "same", frame=1, kind="bake"),
+        _timeline_job(tmp_path, "same", frame=2, kind="bake"),
+        _timeline_job(tmp_path, "next", frame=3, kind="bake"),
+    ]
+    assert scheduler.enqueue_bake(jobs[0].node_path, jobs) == 2
+    scheduler.tick(
+        submit,
+        lambda *_args: None,
+        now=0.0,
+        allow_submit=False,
+    )
+    assert submitted == []
+    scheduler.tick(submit, lambda *_args: None, now=0.0)
+    assert submitted == ["same"]
+    scheduler.cancel_bake(jobs[0].node_path)
+    future.set_result(None)
+    scheduler.tick(submit, lambda *_args: None, now=0.1)
+    assert submitted == ["same"]
 
 
 def test_worker_environment_does_not_leak_houdini_python(tmp_path):

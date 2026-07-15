@@ -62,11 +62,10 @@ def compose_frame(field_path: Path, item: dict[str, object]) -> Image.Image:
     body = font(17)
     small = font(14)
     draw.text((panel_x + 24, 28), "HOUDINI + XLB", font=title, fill="#f3f6f8")
-    draw.text((panel_x + 24, 68), "INTERACTIVE WIND STUDY", font=small, fill="#9ba7b3")
+    draw.text((panel_x + 24, 68), "TIMELINE WIND STUDY", font=small, fill="#9ba7b3")
 
-    current = item["stage"] == "current"
-    badge = "CURRENT" if current else "STALE"
-    badge_fill = "#17864b" if current else "#6b737c"
+    badge = "BAKED"
+    badge_fill = "#17864b"
     draw.rounded_rectangle(
         (panel_x + 24, 106, panel_x + 146, 140),
         radius=9,
@@ -74,19 +73,19 @@ def compose_frame(field_path: Path, item: dict[str, object]) -> Image.Image:
     )
     draw.text((panel_x + 40, 113), badge, font=small, fill="white")
 
-    steps = (("1", "Edit massing", not current), ("2", "Run XLB", current))
+    steps = (("●", "AUTO ON PAUSE"), ("▶", "CACHE PLAYBACK"))
     y = 180
-    for number, label, active in steps:
-        color = "#34d17b" if active else "#56616c"
+    for symbol, label in steps:
+        color = "#34d17b"
         draw.ellipse((panel_x + 24, y, panel_x + 56, y + 32), fill=color)
-        draw.text((panel_x + 35, y + 6), number, font=small, fill="white")
+        draw.text((panel_x + 34, y + 6), symbol, font=small, fill="white")
         draw.text((panel_x + 70, y + 5), label, font=heading, fill="#eef2f5")
         y += 58
 
     draw.line((panel_x + 24, 307, panel_x + panel_width - 24, 307), fill="#35404a", width=1)
     draw.text(
         (panel_x + 24, 332),
-        f"DESIGN {item['design']} / {item['design_count']}",
+        f"FRAME {item['timeline_frame']:02d}  ·  DESIGN {item['design']} / {item['design_count']}",
         font=heading,
         fill="#f3f6f8",
     )
@@ -97,11 +96,8 @@ def compose_frame(field_path: Path, item: dict[str, object]) -> Image.Image:
         font=body,
         fill="#bbc5ce",
     )
-    if current:
-        timing = "cache hit" if item["cache_hit"] else f"{item['elapsed_s']:.1f} s GPU"
-        draw.text((panel_x + 24, 449), f"XLB draft · {timing}", font=small, fill="#68d99a")
-    else:
-        draw.text((panel_x + 24, 449), "previous field dimmed", font=small, fill="#9ba7b3")
+    timing = "cache hit" if item["cache_hit"] else f"{item['elapsed_s']:.1f} s GPU"
+    draw.text((panel_x + 24, 449), f"XLB draft · {timing}", font=small, fill="#68d99a")
 
     arrow_y = field.height - 70
     draw.text((panel_x + 24, arrow_y - 23), "WIND  +X", font=small, fill="#9ba7b3")
@@ -120,7 +116,7 @@ def compose_frame(field_path: Path, item: dict[str, object]) -> Image.Image:
     )
     draw.text(
         (panel_x + 24, field.height - 28),
-        "GPU LBM · explicit confirmation",
+        "GPU LBM · content-addressed cache",
         font=small,
         fill="#6f7c87",
     )
@@ -161,8 +157,8 @@ def main() -> None:
 
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     frames = [compose_frame(work_dir / item["file"], item) for item in metadata]
-    durations = [650 if item["stage"] == "stale" else 1500 for item in metadata]
-    durations[-1] = 2200
+    durations = [1200 for _item in metadata]
+    durations[-1] = 1800
 
     output = args.out.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)

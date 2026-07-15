@@ -99,6 +99,22 @@ def _read_cache(path: Path, config: XlbConfig, key: str) -> AnalysisResult:
     )
 
 
+def load_cached_heightmap(
+    heightmap: np.ndarray,
+    config: XlbConfig | None = None,
+    *,
+    cache_dir: str | Path,
+) -> AnalysisResult | None:
+    """Return an exact cached result without starting the XLB backend."""
+    config = config or XlbConfig.profile("preview")
+    heightmap = prepare_heightmap(heightmap)
+    key = analysis_key(heightmap, config)
+    cache_path = Path(cache_dir).resolve() / f"{key}.npz"
+    if not cache_path.exists():
+        return None
+    return _read_cache(cache_path, config, key)
+
+
 def _write_cache(path: Path, result: AnalysisResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     metadata = json.dumps(result.metadata(), sort_keys=True)
@@ -128,8 +144,10 @@ def analyze_heightmap(
     heightmap = prepare_heightmap(heightmap)
     key = analysis_key(heightmap, config)
     cache_path = Path(cache_dir).resolve() / f"{key}.npz" if cache_dir is not None else None
-    if cache_path is not None and cache_path.exists():
-        return _read_cache(cache_path, config, key)
+    if cache_path is not None:
+        cached = load_cached_heightmap(heightmap, config, cache_dir=cache_dir)
+        if cached is not None:
+            return cached
 
     started = time.perf_counter()
     speed = np.asarray((solver or _default_solver)(heightmap, config), dtype=np.float32)

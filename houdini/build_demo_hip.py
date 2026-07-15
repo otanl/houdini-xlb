@@ -1,4 +1,4 @@
-"""Build a minimal Houdini scene with an explicit cached XLB confirmation button."""
+"""Build a minimal timeline-driven Houdini/XLB scene."""
 
 from __future__ import annotations
 
@@ -39,13 +39,22 @@ def default_worker_python() -> Path:
     )
 
 
+def _linear_keys(parm, values: tuple[tuple[int, float], ...]) -> None:
+    for frame, value in values:
+        key = hou.Keyframe()
+        key.setFrame(frame)
+        key.setValue(value)
+        key.setExpression("linear()", hou.exprLanguage.Hscript)
+        parm.setKeyframe(key)
+
+
 def build_scene(
     name: str = "houdini_xlb",
     *,
     python_executable: Path | None = None,
     cache_dir: Path | None = None,
 ) -> hou.SopNode:
-    """Create boxes → connectivity → explicit XLB Python SOP."""
+    """Create animated boxes, connectivity, and a timeline-aware XLB Python SOP."""
     python_executable = (python_executable or default_worker_python()).resolve()
     cache_dir = (cache_dir or PROJECT_ROOT / "artifacts" / "cache" / "xlb").resolve()
     container = hou.node("/obj").createNode("geo", name, run_init_scripts=False)
@@ -70,6 +79,23 @@ def build_scene(
         box.parm("tz").setExpression("ch('sizez')/2")
         boxes.append(box)
 
+    _linear_keys(
+        boxes[0].parm("tx"),
+        ((1, 24.0), (12, 31.0), (24, 38.0), (36, 28.0)),
+    )
+    _linear_keys(
+        boxes[0].parm("sizez"),
+        ((1, 10.0), (12, 15.0), (24, 22.0), (36, 13.0)),
+    )
+    _linear_keys(
+        boxes[1].parm("ty"),
+        ((1, 54.0), (12, 62.0), (24, 51.0), (36, 58.0)),
+    )
+    _linear_keys(
+        boxes[2].parm("tx"),
+        ((1, 69.0), (12, 63.0), (24, 71.0), (36, 66.0)),
+    )
+
     merge = container.createNode("merge", "buildings")
     for index, box in enumerate(boxes):
         merge.setInput(index, box)
@@ -82,7 +108,12 @@ def build_scene(
     xlb = container.createNode("python", "xlb_confirmation")
     xlb.setInput(0, ground)
     xlb.setInput(1, colour)
-    install_parameters(xlb)
+    install_parameters(
+        xlb,
+        package_src=PACKAGE_SRC,
+        cache_dir=cache_dir,
+        python_executable=python_executable,
+    )
     xlb.parm("python").set(
         sop_code(
             package_src=PACKAGE_SRC,
@@ -95,14 +126,17 @@ def build_scene(
 
     note = container.createStickyNote()
     note.setText(
-        "HOUDINI × XLB\n"
-        "1. Edit building Box SOPs.\n"
-        "2. Select xlb_confirmation and press Run XLB.\n"
-        "3. Geometry edits make the previous field grey/stale until the next run.\n"
-        "draft/preview are interactive confirmations, not frame-rate CFD."
+        "HOUDINI × XLB — TIMELINE DESIGN STUDY\n"
+        "1. Scrub while paused: the current frame auto-analyses after 0.75 s.\n"
+        "2. Bake Range fills the exact geometry/config cache for frames 1–36.\n"
+        "3. Play the timeline: only baked fields display; no CFD launches during playback.\n"
+        "Each frame is a design alternative, not physical simulation time."
     )
     note.setSize(hou.Vector2(5.0, 2.0))
     container.layoutChildren()
+    hou.playbar.setFrameRange(1, 36)
+    hou.playbar.setPlaybackRange(1, 36)
+    hou.setFrame(1)
     return xlb
 
 
@@ -150,11 +184,15 @@ def main() -> None:
             print("\n".join(xlb.errors()))
             raise
         status = xlb.geometry().attribValue("xlb_status")
-        if status != "not-run: press Run XLB":
+        expected_initial = {
+            "current",
+            "not-baked: pause to analyze or use Bake Range",
+        }
+        if status not in expected_initial:
             raise RuntimeError(f"unexpected initial XLB SOP status: {status}")
         if args.run_xlb_smoke:
             xlb.parm("profile").set(0)
-            xlb.parm("request").set(1)
+            xlb.parm("request").set(xlb.evalParm("request") + 1)
             xlb.cook(force=True)
             status = xlb.geometry().attribValue("xlb_status")
             if status != "current":

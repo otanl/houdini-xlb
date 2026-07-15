@@ -1,7 +1,7 @@
 [project]
 name = "houdini-xlb"
-version = "0.1.0"
-description = "Cached persistent-worker XLB wind analysis from Houdini geometry."
+version = "0.2.0"
+description = "Timeline-aware cached XLB wind analysis from Houdini geometry."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = { file = "LICENSE" }

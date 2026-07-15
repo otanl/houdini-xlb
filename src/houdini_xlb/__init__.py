@@ -6,20 +6,25 @@ from .core import (
     AnalysisResult,
     analysis_key,
     analyze_heightmap,
+    load_cached_heightmap,
     normalize_heights,
     prepare_heightmap,
 )
 from .houdini_sop import install_parameters, sop_code
 from .raster import rasterize_points
+from .timeline import TimelineJob, TimelineScheduler
 
 __all__ = [
     "AnalysisResult",
     "XlbConfig",
     "XlbWorkerClient",
+    "TimelineJob",
+    "TimelineScheduler",
     "analysis_key",
     "analyze_heightmap",
     "default_python_executable",
     "normalize_heights",
+    "load_cached_heightmap",
     "prepare_heightmap",
     "profile_names",
     "rasterize_points",

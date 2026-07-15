@@ -64,31 +64,27 @@ def main() -> None:
     renderer.parm("usegeocolor").set(1)
 
     building = xlb.parent().node("building0")
-    layouts = (
-        {"x": 28.0, "y": 42.0, "height": 12.0},
-        {"x": 34.0, "y": 40.0, "height": 16.0},
-        {"x": 40.0, "y": 40.0, "height": 20.0},
-        {"x": 46.0, "y": 42.0, "height": 14.0},
-    )
+    timeline_frames = (1, 12, 24, 36)
     metadata: list[dict[str, object]] = []
     frame_index = 0
 
-    def render(stage: str, design_index: int) -> None:
+    def render(timeline_frame: int, design_index: int) -> None:
         nonlocal frame_index
         geometry = xlb.geometry()
         status = str(geometry.attribValue("xlb_status"))
         frame_path = output_dir / f"frame_{frame_index:02d}.png"
         renderer.parm("picture").set(str(frame_path))
-        renderer.render(frame_range=(1, 1))
+        renderer.render(frame_range=(timeline_frame, timeline_frame))
         speed = geometry.pointFloatAttribValues("windspeed")
         metadata.append(
             {
                 "file": frame_path.name,
-                "stage": stage,
                 "status": status,
+                "timeline_frame": timeline_frame,
                 "design": design_index + 1,
-                "design_count": len(layouts),
-                **layouts[design_index],
+                "design_count": len(timeline_frames),
+                "x": float(building.evalParm("tx")),
+                "height": float(building.evalParm("sizez")),
                 "elapsed_s": float(geometry.attribValue("xlb_elapsed_s")),
                 "cache_hit": int(geometry.attribValue("xlb_cache_hit")),
                 "max_speed": max(speed, default=0.0),
@@ -98,22 +94,13 @@ def main() -> None:
         frame_index += 1
 
     try:
-        for design_index, layout in enumerate(layouts):
-            building.parm("tx").set(layout["x"])
-            building.parm("ty").set(layout["y"])
-            building.parm("sizez").set(layout["height"])
-
-            if design_index > 0:
-                xlb.cook(force=True)
-                if not str(xlb.geometry().attribValue("xlb_status")).startswith("stale"):
-                    raise RuntimeError("geometry edit did not mark the XLB result stale")
-                render("stale", design_index)
-
+        for design_index, timeline_frame in enumerate(timeline_frames):
+            hou.setFrame(timeline_frame)
             xlb.parm("request").set(xlb.evalParm("request") + 1)
             xlb.cook(force=True)
             if xlb.geometry().attribValue("xlb_status") != "current":
                 raise RuntimeError("XLB result is not current")
-            render("current", design_index)
+            render(timeline_frame, design_index)
     finally:
         client = getattr(hou.session, "_houdini_xlb_client", None)
         if client is not None:
