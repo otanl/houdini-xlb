@@ -1,8 +1,9 @@
-"""Build a minimal timeline-driven Houdini/XLB scene."""
+"""Build the constrained XLB layout-optimization demo scene."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -14,15 +15,24 @@ PACKAGE_SRC = PROJECT_ROOT / "src"
 if str(PACKAGE_SRC) not in sys.path:
     sys.path.insert(0, str(PACKAGE_SRC))
 
+from houdini_xlb.demo_study import (  # noqa: E402
+    END_FRAME,
+    MILESTONE_FRAMES,
+    PLAZA_BOUNDS,
+    START_FRAME,
+    VENT_BOUNDS,
+    study_buildings,
+    validate_design,
+    validate_optimization,
+)
 from houdini_xlb.houdini_sop import install_parameters, sop_code  # noqa: E402
 
 LENGTH_X = 100.0
 LENGTH_Y = 100.0
 NY = 96
 NX = 96
-START_FRAME = 1
-END_FRAME = 120
 FPS = 12.0
+DEFAULT_OPTIMIZATION = PROJECT_ROOT / "examples" / "houdini_xlb_demo_optimization.json"
 
 
 def default_worker_python() -> Path:
@@ -42,13 +52,50 @@ def default_worker_python() -> Path:
     )
 
 
-def _linear_keys(parm, values: tuple[tuple[int, float], ...]) -> None:
+def load_optimization(path: Path | None = None) -> dict[str, object]:
+    """Load and validate the XLB-generated best-so-far trajectory."""
+
+    source = (path or DEFAULT_OPTIMIZATION).resolve()
+    if not source.exists():
+        raise FileNotFoundError(
+            f"optimization result not found at {source}; run scripts/optimize_demo.py"
+        )
+    data = json.loads(source.read_text(encoding="utf-8"))
+    validate_optimization(data)
+    return data
+
+
+def _constant_keys(parm, values: tuple[tuple[int, float], ...]) -> None:
     for frame, value in values:
         key = hou.Keyframe()
         key.setFrame(frame)
         key.setValue(value)
-        key.setExpression("linear()", hou.exprLanguage.Hscript)
+        key.setExpression("constant()", hou.exprLanguage.Hscript)
         parm.setKeyframe(key)
+
+
+def _outline_rectangle(container, name, bounds, colour):
+    """Create a thin raised rectangle used only as a viewport measurement guide."""
+
+    xmin, ymin, xmax, ymax = bounds
+    thickness = 0.7
+    height = 0.25
+    segments = (
+        ((xmax - xmin, thickness, height), ((xmin + xmax) / 2, ymin, 0.3)),
+        ((xmax - xmin, thickness, height), ((xmin + xmax) / 2, ymax, 0.3)),
+        ((thickness, ymax - ymin, height), (xmin, (ymin + ymax) / 2, 0.3)),
+        ((thickness, ymax - ymin, height), (xmax, (ymin + ymax) / 2, 0.3)),
+    )
+    merge = container.createNode("merge", f"{name}_outline")
+    for index, (size, position) in enumerate(segments):
+        segment = container.createNode("box", f"{name}_edge{index}")
+        segment.parmTuple("size").set(size)
+        segment.parmTuple("t").set(position)
+        merge.setInput(index, segment)
+    colour_node = container.createNode("color", f"{name}_colour")
+    colour_node.setFirstInput(merge)
+    colour_node.parmTuple("color").set(colour)
+    return colour_node
 
 
 def build_scene(
@@ -56,10 +103,15 @@ def build_scene(
     *,
     python_executable: Path | None = None,
     cache_dir: Path | None = None,
+    optimization_path: Path | None = None,
 ) -> hou.SopNode:
-    """Create animated boxes and a Prev_Frame-driven XLB Solver SOP."""
+    """Create a constrained best-so-far study and Prev_Frame-driven XLB Solver SOP."""
     python_executable = (python_executable or default_worker_python()).resolve()
     cache_dir = (cache_dir or PROJECT_ROOT / "artifacts" / "cache" / "xlb").resolve()
+    optimization = load_optimization(optimization_path)
+    milestones = optimization["milestones"]
+    designs = [tuple(map(float, milestone["design"])) for milestone in milestones]
+    minimum_clearance = min(validate_design(design) for design in designs)
     hou.setFps(FPS)
     container = hou.node("/obj").createNode("geo", name, run_init_scripts=False)
 
@@ -70,52 +122,56 @@ def build_scene(
     ground.parm("rows").set(NY)
     ground.parm("cols").set(NX)
 
-    initial = (
-        (28.0, 42.0, 12.0, 18.0, 12.0),
-        (48.0, 58.0, 16.0, 12.0, 18.0),
-        (67.0, 38.0, 11.0, 20.0, 9.0),
-    )
     boxes = []
-    for index, (cx, cy, width, depth, height) in enumerate(initial):
+    for index, massing in enumerate(study_buildings(designs[0])):
         box = container.createNode("box", f"building{index}")
-        box.parmTuple("size").set((width, depth, height))
-        box.parmTuple("t").set((cx, cy, height / 2))
+        box.parmTuple("size").set((massing.width, massing.depth, massing.height))
+        box.parmTuple("t").set((massing.cx, massing.cy, massing.height / 2))
         box.parm("tz").setExpression("ch('sizez')/2")
         boxes.append(box)
 
-    _linear_keys(
-        boxes[0].parm("tx"),
-        ((START_FRAME, 24.0), (41, 31.0), (81, 38.0), (END_FRAME, 28.0)),
-    )
-    _linear_keys(
-        boxes[0].parm("sizez"),
-        ((START_FRAME, 10.0), (41, 15.0), (81, 22.0), (END_FRAME, 13.0)),
-    )
-    _linear_keys(
-        boxes[1].parm("ty"),
-        ((START_FRAME, 54.0), (41, 62.0), (81, 51.0), (END_FRAME, 58.0)),
-    )
-    _linear_keys(
-        boxes[2].parm("tx"),
-        ((START_FRAME, 69.0), (41, 63.0), (81, 71.0), (END_FRAME, 66.0)),
-    )
+    for building_index, design_indices in enumerate(((0, 1), (2, 3))):
+        for parm_name, design_index in zip(
+            ("tx", "ty"),
+            design_indices,
+            strict=True,
+        ):
+            _constant_keys(
+                boxes[building_index].parm(parm_name),
+                tuple(
+                    (frame, design[design_index])
+                    for frame, design in zip(MILESTONE_FRAMES, designs, strict=True)
+                ),
+            )
+
+    movable_merge = container.createNode("merge", "movable_buildings")
+    movable_merge.setInput(0, boxes[0])
+    movable_merge.setInput(1, boxes[1])
+    movable_colour = container.createNode("color", "movable_colour")
+    movable_colour.setFirstInput(movable_merge)
+    movable_colour.parmTuple("color").set((0.15, 0.55, 0.95))
+
+    fixed_merge = container.createNode("merge", "fixed_buildings")
+    fixed_merge.setInput(0, boxes[2])
+    fixed_merge.setInput(1, boxes[3])
+    fixed_colour = container.createNode("color", "fixed_colour")
+    fixed_colour.setFirstInput(fixed_merge)
+    fixed_colour.parmTuple("color").set((0.32, 0.39, 0.46))
 
     merge = container.createNode("merge", "buildings")
-    for index, box in enumerate(boxes):
-        merge.setInput(index, box)
+    merge.setInput(0, movable_colour)
+    merge.setInput(1, fixed_colour)
     connectivity = container.createNode("connectivity", "connected_buildings")
     connectivity.setFirstInput(merge)
-    colour = container.createNode("color", "building_colour")
-    colour.setFirstInput(connectivity)
-    colour.parmTuple("color").set((0.15, 0.55, 0.95))
+    building_geometry = connectivity
 
     init = container.createNode("python", "xlb_init")
     init.setInput(0, ground)
-    init.setInput(1, colour)
+    init.setInput(1, building_geometry)
 
     solver = container.createNode("solver", "xlb_solver")
     solver.setInput(0, init)
-    solver.setInput(1, colour)
+    solver.setInput(1, building_geometry)
     solver.parm("startframe").set(1)
     solver.parm("cacheenabled").set(1)
     if solver.parm("cachemaxsize") is not None:
@@ -123,17 +179,35 @@ def build_scene(
 
     result = container.createNode("python", "xlb_result")
     result.setInput(0, solver)
-    result.setInput(1, colour)
+    result.setInput(1, building_geometry)
+
+    plaza_guide = _outline_rectangle(
+        container,
+        "plaza",
+        PLAZA_BOUNDS,
+        (1.0, 0.72, 0.18),
+    )
+    vent_guide = _outline_rectangle(
+        container,
+        "vent_route",
+        VENT_BOUNDS,
+        (0.18, 0.88, 0.92),
+    )
+    display = container.createNode("merge", "study_display")
+    display.setInput(0, result)
+    display.setInput(1, plaza_guide)
+    display.setInput(2, vent_guide)
 
     install_parameters(
         solver,
         package_src=PACKAGE_SRC,
         cache_dir=cache_dir,
         python_executable=python_executable,
-        refresh_path=result.path(),
+        refresh_path=display.path(),
     )
     solver.parm("bakestart").set(START_FRAME)
     solver.parm("bakeend").set(END_FRAME)
+    solver.parm("vmax").set(0.10)
 
     init.parm("python").set(
         sop_code(
@@ -141,7 +215,7 @@ def build_scene(
             cache_dir=cache_dir,
             python_executable=python_executable,
             control_path=solver.path(),
-            refresh_path=result.path(),
+            refresh_path=display.path(),
             merge_buildings=False,
             role="init",
         )
@@ -156,7 +230,7 @@ def build_scene(
             cache_dir=cache_dir,
             python_executable=python_executable,
             control_path=solver.path(),
-            refresh_path=result.path(),
+            refresh_path=display.path(),
             merge_buildings=False,
             role="step",
         )
@@ -170,23 +244,28 @@ def build_scene(
             cache_dir=cache_dir,
             python_executable=python_executable,
             control_path=solver.path(),
-            refresh_path=result.path(),
+            refresh_path=display.path(),
             merge_buildings=True,
             role="display",
         )
     )
-    result.setDisplayFlag(True)
-    result.setRenderFlag(True)
+    display.setDisplayFlag(True)
+    display.setRenderFlag(True)
 
     note = container.createStickyNote()
     note.setText(
-        "HOUDINI × XLB — TIMELINE DESIGN STUDY\n"
-        "1. Select xlb_solver: Prev_Frame carries wind/state in the Simulation Cache.\n"
-        "2. Scrub while paused: the current design auto-analyses after 0.75 s.\n"
-        "3. Bake Range fills the SHA cache; playback launches no new XLB jobs.\n"
-        "120 frames at 12 fps = a slow 10 s design study, not physical CFD time."
+        "HOUDINI + XLB — CONSTRAINED LAYOUT OPTIMIZATION\n"
+        "Two blue blocks move in four variables; two gray blocks remain fixed.\n"
+        "16 collision-free layouts are evaluated with XLB; the timeline shows only "
+        "best-so-far milestones.\n"
+        "Objective: maximize plaza cells in 0.55 <= U/Uin <= 1.20.\n"
+        "Hard constraint: central ventilation route >= 95% of baseline; "
+        f"minimum clearance = {minimum_clearance:.1f} m.\n"
+        "Yellow = plaza target; cyan = ventilation route.\n"
+        "Select xlb_solver and use Bake Range to populate the SHA cache.\n"
+        "Timeline frames are optimization milestones, not physical CFD time."
     )
-    note.setSize(hou.Vector2(5.0, 2.0))
+    note.setSize(hou.Vector2(7.5, 3.7))
     container.layoutChildren()
     hou.playbar.setFrameRange(START_FRAME, END_FRAME)
     hou.playbar.setPlaybackRange(START_FRAME, END_FRAME)
@@ -214,6 +293,12 @@ def main() -> None:
         help="XLB result cache",
     )
     parser.add_argument(
+        "--optimization",
+        type=Path,
+        default=DEFAULT_OPTIMIZATION,
+        help="optimization JSON produced by scripts/optimize_demo.py",
+    )
+    parser.add_argument(
         "--run-xlb-smoke",
         action="store_true",
         help="also execute the draft profile through the external GPU worker",
@@ -230,6 +315,7 @@ def main() -> None:
     solver = build_scene(
         python_executable=python_executable,
         cache_dir=args.cache_dir,
+        optimization_path=args.optimization,
     )
     result = solver.parent().node("xlb_result")
     if result is None:

@@ -1,0 +1,697 @@
+{
+  "baseline": {
+    "design": [
+      38.0,
+      30.0,
+      38.0,
+      70.0
+    ],
+    "metrics": {
+      "band_error": 0.006939279073986592,
+      "comfort_fraction": 0.3958333333333333,
+      "plaza_mean": 1.2381933728853862,
+      "vent_mean": 1.2818940395400638
+    }
+  },
+  "evaluations": [
+    {
+      "best_design": [
+        38.0,
+        30.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 1,
+      "best_metrics": {
+        "band_error": 0.006939279073986592,
+        "comfort_fraction": 0.3958333333333333,
+        "plaza_mean": 1.2381933728853862,
+        "vent_mean": 1.2818940395400638
+      },
+      "best_objective": 0.6041666666666667,
+      "best_vent_retention": 1.0,
+      "design": [
+        38.0,
+        30.0,
+        38.0,
+        70.0
+      ],
+      "evaluation": 1,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.006939279073986592,
+        "comfort_fraction": 0.3958333333333333,
+        "plaza_mean": 1.2381933728853862,
+        "vent_mean": 1.2818940395400638
+      },
+      "objective": 0.6041666666666667,
+      "vent_retention": 1.0
+    },
+    {
+      "best_design": [
+        38.0,
+        30.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 1,
+      "best_metrics": {
+        "band_error": 0.006939279073986592,
+        "comfort_fraction": 0.3958333333333333,
+        "plaza_mean": 1.2381933728853862,
+        "vent_mean": 1.2818940395400638
+      },
+      "best_objective": 0.6041666666666667,
+      "best_vent_retention": 1.0,
+      "design": [
+        50.0,
+        30.0,
+        50.0,
+        62.0
+      ],
+      "evaluation": 2,
+      "feasible": false,
+      "metrics": {
+        "band_error": 0.021167238612190015,
+        "comfort_fraction": 0.69375,
+        "plaza_mean": 1.1251387792193175,
+        "vent_mean": 1.202376014065175
+      },
+      "objective": 0.30625,
+      "vent_retention": 0.9379683319976904
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        38.0,
+        62.0
+      ],
+      "best_evaluation": 3,
+      "best_metrics": {
+        "band_error": 0.0014356307553856653,
+        "comfort_fraction": 0.5791666666666667,
+        "plaza_mean": 1.1395941808198888,
+        "vent_mean": 1.2949538763080324
+      },
+      "best_objective": 0.4208333333333333,
+      "best_vent_retention": 1.010187922219105,
+      "design": [
+        38.0,
+        38.0,
+        38.0,
+        62.0
+      ],
+      "evaluation": 3,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.0014356307553856653,
+        "comfort_fraction": 0.5791666666666667,
+        "plaza_mean": 1.1395941808198888,
+        "vent_mean": 1.2949538763080324
+      },
+      "objective": 0.4208333333333333,
+      "vent_retention": 1.010187922219105
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        38.0,
+        62.0
+      ],
+      "best_evaluation": 3,
+      "best_metrics": {
+        "band_error": 0.0014356307553856653,
+        "comfort_fraction": 0.5791666666666667,
+        "plaza_mean": 1.1395941808198888,
+        "vent_mean": 1.2949538763080324
+      },
+      "best_objective": 0.4208333333333333,
+      "best_vent_retention": 1.010187922219105,
+      "design": [
+        38.0,
+        38.0,
+        50.0,
+        70.0
+      ],
+      "evaluation": 4,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.0013764354978122136,
+        "comfort_fraction": 0.4895833333333333,
+        "plaza_mean": 1.1837556090516348,
+        "vent_mean": 1.2751209075961794
+      },
+      "objective": 0.5104166666666667,
+      "vent_retention": 0.9947163090435193
+    },
+    {
+      "best_design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 5,
+      "best_metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "best_objective": 0.38125,
+      "best_vent_retention": 0.9645863748903972,
+      "design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "evaluation": 5,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "objective": 0.38125,
+      "vent_retention": 0.9645863748903972
+    },
+    {
+      "best_design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 5,
+      "best_metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "best_objective": 0.38125,
+      "best_vent_retention": 0.9645863748903972,
+      "design": [
+        50.0,
+        30.0,
+        50.0,
+        70.0
+      ],
+      "evaluation": 6,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.007080823560385818,
+        "comfort_fraction": 0.2625,
+        "plaza_mean": 1.2316634870755176,
+        "vent_mean": 1.236333232550394
+      },
+      "objective": 0.7375,
+      "vent_retention": 0.9644582113775826
+    },
+    {
+      "best_design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 5,
+      "best_metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "best_objective": 0.38125,
+      "best_vent_retention": 0.9645863748903972,
+      "design": [
+        50.0,
+        30.0,
+        38.0,
+        62.0
+      ],
+      "evaluation": 7,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.001376439768391008,
+        "comfort_fraction": 0.4895833333333333,
+        "plaza_mean": 1.1837557537170749,
+        "vent_mean": 1.275121037803945
+      },
+      "objective": 0.5104166666666667,
+      "vent_retention": 0.9947164106180345
+    },
+    {
+      "best_design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 5,
+      "best_metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "best_objective": 0.38125,
+      "best_vent_retention": 0.9645863748903972,
+      "design": [
+        50.0,
+        30.0,
+        38.0,
+        70.0
+      ],
+      "evaluation": 8,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.0039564027587027945,
+        "comfort_fraction": 0.23333333333333334,
+        "plaza_mean": 1.2339001670479774,
+        "vent_mean": 1.263101692001025
+      },
+      "objective": 0.7666666666666666,
+      "vent_retention": 0.9853401709038436
+    },
+    {
+      "best_design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 5,
+      "best_metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "best_objective": 0.38125,
+      "best_vent_retention": 0.9645863748903972,
+      "design": [
+        38.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "evaluation": 9,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.003920710718707661,
+        "comfort_fraction": 0.49166666666666664,
+        "plaza_mean": 1.1938434986708064,
+        "vent_mean": 1.2820152438112669
+      },
+      "objective": 0.5083333333333333,
+      "vent_retention": 1.0000945509281303
+    },
+    {
+      "best_design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "best_evaluation": 5,
+      "best_metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "best_objective": 0.38125,
+      "best_vent_retention": 0.9645863748903972,
+      "design": [
+        38.0,
+        30.0,
+        50.0,
+        70.0
+      ],
+      "evaluation": 10,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.003956385688777085,
+        "comfort_fraction": 0.23333333333333334,
+        "plaza_mean": 1.2339001957637568,
+        "vent_mean": 1.2631016526193846
+      },
+      "objective": 0.7666666666666666,
+      "vent_retention": 0.9853401401823962
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "best_evaluation": 11,
+      "best_metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "best_objective": 0.1645833333333333,
+      "best_vent_retention": 0.9521288341656092,
+      "design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "evaluation": 11,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "objective": 0.1645833333333333,
+      "vent_retention": 0.9521288341656092
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "best_evaluation": 11,
+      "best_metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "best_objective": 0.1645833333333333,
+      "best_vent_retention": 0.9521288341656092,
+      "design": [
+        50.0,
+        38.0,
+        38.0,
+        62.0
+      ],
+      "evaluation": 12,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.005924006122625782,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690037466276,
+        "vent_mean": 1.2205283857349838
+      },
+      "objective": 0.1645833333333333,
+      "vent_retention": 0.9521289186841858
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "best_evaluation": 11,
+      "best_metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "best_objective": 0.1645833333333333,
+      "best_vent_retention": 0.9521288341656092,
+      "design": [
+        38.0,
+        30.0,
+        50.0,
+        62.0
+      ],
+      "evaluation": 13,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.010643849308073187,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262831176087882,
+        "vent_mean": 1.2364975910279012
+      },
+      "objective": 0.38125,
+      "vent_retention": 0.9645864267155415
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "best_evaluation": 11,
+      "best_metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "best_objective": 0.1645833333333333,
+      "best_vent_retention": 0.9521288341656092,
+      "design": [
+        38.0,
+        30.0,
+        38.0,
+        62.0
+      ],
+      "evaluation": 14,
+      "feasible": true,
+      "metrics": {
+        "band_error": 0.003920746171801049,
+        "comfort_fraction": 0.49166666666666664,
+        "plaza_mean": 1.193843647527198,
+        "vent_mean": 1.2820146490065825
+      },
+      "objective": 0.5083333333333333,
+      "vent_retention": 1.0000940869235666
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "best_evaluation": 11,
+      "best_metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "best_objective": 0.1645833333333333,
+      "best_vent_retention": 0.9521288341656092,
+      "design": [
+        50.0,
+        38.0,
+        50.0,
+        70.0
+      ],
+      "evaluation": 15,
+      "feasible": false,
+      "metrics": {
+        "band_error": 0.021167368195465813,
+        "comfort_fraction": 0.69375,
+        "plaza_mean": 1.1251385516661685,
+        "vent_mean": 1.2023761295491742
+      },
+      "objective": 0.30625,
+      "vent_retention": 0.9379684220862591
+    },
+    {
+      "best_design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "best_evaluation": 11,
+      "best_metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "best_objective": 0.1645833333333333,
+      "best_vent_retention": 0.9521288341656092,
+      "design": [
+        50.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "evaluation": 16,
+      "feasible": false,
+      "metrics": {
+        "band_error": 0.050103428670986966,
+        "comfort_fraction": 0.7541666666666667,
+        "plaza_mean": 0.9799161186480584,
+        "vent_mean": 1.1494932160491036
+      },
+      "objective": 0.24583333333333335,
+      "vent_retention": 0.8967146898206463
+    }
+  ],
+  "milestones": [
+    {
+      "best_evaluation": 1,
+      "design": [
+        38.0,
+        30.0,
+        38.0,
+        70.0
+      ],
+      "evaluation": 1,
+      "frame": 1,
+      "metrics": {
+        "band_error": 0.006939279073986592,
+        "comfort_fraction": 0.3958333333333333,
+        "plaza_mean": 1.2381933728853862,
+        "vent_mean": 1.2818940395400638
+      },
+      "objective": 0.6041666666666667,
+      "vent_retention": 1.0
+    },
+    {
+      "best_evaluation": 3,
+      "design": [
+        38.0,
+        38.0,
+        38.0,
+        62.0
+      ],
+      "evaluation": 3,
+      "frame": 31,
+      "metrics": {
+        "band_error": 0.0014356307553856653,
+        "comfort_fraction": 0.5791666666666667,
+        "plaza_mean": 1.1395941808198888,
+        "vent_mean": 1.2949538763080324
+      },
+      "objective": 0.4208333333333333,
+      "vent_retention": 1.010187922219105
+    },
+    {
+      "best_evaluation": 5,
+      "design": [
+        50.0,
+        38.0,
+        38.0,
+        70.0
+      ],
+      "evaluation": 5,
+      "frame": 61,
+      "metrics": {
+        "band_error": 0.010643853518510703,
+        "comfort_fraction": 0.61875,
+        "plaza_mean": 1.1262830417836085,
+        "vent_mean": 1.2364975245935577
+      },
+      "objective": 0.38125,
+      "vent_retention": 0.9645863748903972
+    },
+    {
+      "best_evaluation": 11,
+      "design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "evaluation": 11,
+      "frame": 91,
+      "metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "objective": 0.1645833333333333,
+      "vent_retention": 0.9521288341656092
+    },
+    {
+      "best_evaluation": 11,
+      "design": [
+        38.0,
+        38.0,
+        50.0,
+        62.0
+      ],
+      "evaluation": 16,
+      "frame": 120,
+      "metrics": {
+        "band_error": 0.005923994541493752,
+        "comfort_fraction": 0.8354166666666667,
+        "plaza_mean": 1.0621690509530406,
+        "vent_mean": 1.2205282773911243
+      },
+      "objective": 0.1645833333333333,
+      "vent_retention": 0.9521288341656092
+    }
+  ],
+  "objective": {
+    "comfort_band_u_over_uin": [
+      0.55,
+      1.2
+    ],
+    "name": "plaza_outside_comfort_band_fraction",
+    "ventilation_constraint": 0.95
+  },
+  "result": {
+    "best_evaluation": 11,
+    "design": [
+      38.0,
+      38.0,
+      50.0,
+      62.0
+    ],
+    "metrics": {
+      "band_error": 0.005923994541493752,
+      "comfort_fraction": 0.8354166666666667,
+      "plaza_mean": 1.0621690509530406,
+      "vent_mean": 1.2205282773911243
+    },
+    "objective": 0.1645833333333333,
+    "vent_retention": 0.9521288341656092
+  },
+  "schema_version": 1,
+  "search": {
+    "candidate_count": 16,
+    "design_variables": [
+      "lower_x",
+      "lower_y",
+      "upper_x",
+      "upper_y"
+    ],
+    "method": "exhaustive-discrete",
+    "seed": 2
+  },
+  "solver": {
+    "config": {
+      "average_every": 25,
+      "average_window": 100,
+      "grid_x": 96,
+      "grid_y": 96,
+      "grid_z": 40,
+      "pedestrian_z": 4,
+      "precision": "FP32FP32",
+      "reference_height": 0.3,
+      "reynolds": 8000.0,
+      "steps": 300,
+      "wind": 0.05
+    },
+    "engine": "XLB",
+    "profile": "draft"
+  }
+}

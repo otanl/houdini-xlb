@@ -19,6 +19,25 @@ from houdini_xlb import (
     worker_environment,
 )
 from houdini_xlb.cli import _configured_profile, _parser
+from houdini_xlb.demo_study import (
+    BASE_DESIGN,
+    FIXED_BUILDINGS,
+    GRID_NX,
+    GRID_NY,
+    MILESTONE_EVALUATIONS,
+    MILESTONE_FRAMES,
+    MIN_CLEARANCE_M,
+    MOVABLE_TEMPLATES,
+    PLAZA_BOUNDS,
+    Massing,
+    candidate_designs,
+    heightmap_from_design,
+    mean_speed_in_bounds,
+    minimum_clearance,
+    study_buildings,
+    validate_design,
+    validate_optimization,
+)
 from houdini_xlb.protocol import RESPONSE
 from houdini_xlb.timeline import TimelineJob, TimelineScheduler
 from houdini_xlb.worker import serve
@@ -36,6 +55,67 @@ def test_package_does_not_depend_on_windcfd_or_mokumitsu():
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imports.add(node.module.split(".", 1)[0])
     assert imports.isdisjoint(forbidden)
+
+
+def test_demo_candidate_space_is_collision_free_and_fixed_volume():
+    designs = candidate_designs()
+    assert len(designs) == 16
+    assert len(set(designs)) == 16
+    assert designs[0] == BASE_DESIGN
+    baseline_buildings = study_buildings(BASE_DESIGN)
+    baseline_volumes = tuple(building.volume for building in baseline_buildings)
+    assert tuple((building.cx, building.cy) for building in baseline_buildings[:2]) == (
+        (BASE_DESIGN[0], BASE_DESIGN[1]),
+        (BASE_DESIGN[2], BASE_DESIGN[3]),
+    )
+    assert tuple(
+        (building.width, building.depth, building.height) for building in baseline_buildings[:2]
+    ) == tuple((template.width, template.depth, template.height) for template in MOVABLE_TEMPLATES)
+    assert baseline_buildings[2:] == FIXED_BUILDINGS
+
+    for design in designs:
+        buildings = study_buildings(design)
+        assert validate_design(design) >= MIN_CLEARANCE_M
+        assert minimum_clearance(buildings) >= MIN_CLEARANCE_M
+        assert tuple(building.volume for building in buildings) == baseline_volumes
+
+    heightmap = heightmap_from_design(BASE_DESIGN)
+    assert heightmap.shape == (GRID_NY, GRID_NX)
+    assert heightmap.max() == pytest.approx(0.5)
+
+
+def test_tracked_demo_optimization_is_valid_and_reproducible():
+    path = Path(__file__).parents[1] / "examples" / "houdini_xlb_demo_optimization.json"
+    optimization = json.loads(path.read_text(encoding="utf-8"))
+    validate_optimization(optimization)
+    assert len(optimization["evaluations"]) == 16
+    assert [item["frame"] for item in optimization["milestones"]] == list(MILESTONE_FRAMES)
+    assert [item["evaluation"] for item in optimization["milestones"]] == list(
+        MILESTONE_EVALUATIONS
+    )
+    assert optimization["result"]["best_evaluation"] == 11
+    assert optimization["result"]["design"] == [38.0, 38.0, 50.0, 62.0]
+    assert optimization["baseline"]["metrics"]["comfort_fraction"] == pytest.approx(0.3958333333)
+    assert optimization["result"]["metrics"]["comfort_fraction"] == pytest.approx(0.8354166667)
+    assert optimization["result"]["vent_retention"] == pytest.approx(0.9521288342)
+
+
+def test_demo_zone_metric_uses_world_space_bounds():
+    positions = np.asarray(
+        [
+            [PLAZA_BOUNDS[0], PLAZA_BOUNDS[1], 0.0],
+            [70.0, 50.0, 0.0],
+            [10.0, 10.0, 0.0],
+        ]
+    )
+    speed = np.asarray([1.0, 3.0, 100.0])
+    assert mean_speed_in_bounds(positions, speed, PLAZA_BOUNDS) == pytest.approx(2.0)
+    assert minimum_clearance(
+        (
+            Massing(0.0, 0.0, 2.0, 2.0, 1.0),
+            Massing(5.0, 0.0, 2.0, 2.0, 1.0),
+        )
+    ) == pytest.approx(3.0)
 
 
 def test_profiles_and_cache_key_are_explicit():
@@ -151,7 +231,9 @@ def test_demo_builder_uses_real_solver_sop_prev_frame_network():
     assert 'role="init"' in source
     assert 'role="step"' in source
     assert 'role="display"' in source
-    assert "END_FRAME = 120" in source
+    assert "_constant_keys" in source
+    assert "MILESTONE_FRAMES" in source
+    assert "optimization_path" in source
     assert "FPS = 12.0" in source
     assert "hou.setFps(FPS)" in source
     assert "_houdini_xlb_display_state" not in timeline
