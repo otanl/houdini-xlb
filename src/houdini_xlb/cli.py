@@ -33,10 +33,14 @@ def _configured_profile(args: argparse.Namespace) -> XlbConfig:
             "steps": args.steps,
             "wind": args.wind,
             "reynolds": args.reynolds,
-            "reference_height": args.reference_height,
-            "pedestrian_z": args.pedestrian_z,
+            "domain_length_x_m": args.domain_x_m,
+            "domain_length_y_m": args.domain_y_m,
+            "domain_height_m": args.domain_height_m,
+            "reference_height_m": args.reference_height_m,
+            "pedestrian_height_m": args.pedestrian_height_m,
             "average_window": args.average_window,
             "average_every": args.average_every,
+            "max_speed_ratio": args.max_speed_ratio,
         }.items()
         if value is not None
     }
@@ -55,10 +59,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--steps", type=int)
     parser.add_argument("--wind", type=float)
     parser.add_argument("--reynolds", type=float)
-    parser.add_argument("--reference-height", type=float)
-    parser.add_argument("--pedestrian-z", type=int)
+    parser.add_argument("--domain-x-m", type=float)
+    parser.add_argument("--domain-y-m", type=float)
+    parser.add_argument("--domain-height-m", type=float)
+    parser.add_argument("--reference-height-m", type=float)
+    parser.add_argument("--pedestrian-height-m", type=float)
     parser.add_argument("--average-window", type=int)
     parser.add_argument("--average-every", type=int)
+    parser.add_argument("--max-speed-ratio", type=float)
     parser.add_argument("--cache", type=Path, default=Path("artifacts/houdini/cache/xlb"))
     parser.add_argument("--out", type=Path, default=Path("outputs/houdini_xlb_result.npz"))
     return parser

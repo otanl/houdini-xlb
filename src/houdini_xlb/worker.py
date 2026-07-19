@@ -16,7 +16,11 @@ from .core import Solver, analyze_heightmap
 from .protocol import READY, RESPONSE
 
 
-def handle_request(request: dict[str, object], solver: Solver | None = None) -> dict[str, object]:
+def handle_request(
+    request: dict[str, object],
+    solver: Solver | None = None,
+    solver_signature: str | None = None,
+) -> dict[str, object]:
     operation = request.get("op")
     if operation == "health":
         return {"ok": True, "protocol": 1}
@@ -33,6 +37,7 @@ def handle_request(request: dict[str, object], solver: Solver | None = None) -> 
             config,
             cache_dir=cache_dir,
             solver=solver,
+            solver_signature=solver_signature,
         )
     response = result.metadata()
     response["ok"] = True
@@ -44,6 +49,7 @@ def serve(
     output_stream: TextIO = sys.stdout,
     *,
     solver: Solver | None = None,
+    solver_signature: str | None = None,
 ) -> None:
     print(READY, file=output_stream, flush=True)
     for raw_line in input_stream:
@@ -54,7 +60,11 @@ def serve(
             break
         try:
             request = json.loads(line)
-            response = handle_request(request, solver=solver)
+            response = handle_request(
+                request,
+                solver=solver,
+                solver_signature=solver_signature,
+            )
         except Exception as exc:
             response = {
                 "ok": False,

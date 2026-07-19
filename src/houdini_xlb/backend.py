@@ -57,14 +57,14 @@ def _context(grid_xyz: tuple[int, int, int], wind: float, precision: str):
 
 
 def _solid_indices(heightmap: np.ndarray, grid_xyz: tuple[int, int, int]):
-    from scipy.ndimage import zoom
-
     grid_x, grid_y, grid_z = grid_xyz
-    lattice_map = zoom(
-        np.asarray(heightmap, dtype=np.float64),
-        (grid_y / heightmap.shape[0], grid_x / heightmap.shape[1]),
-        order=1,
-    ).clip(0.0, 1.0)
+    expected_shape = (grid_y, grid_x)
+    if heightmap.shape != expected_shape:
+        raise ValueError(
+            f"heightmap shape {heightmap.shape} must equal lattice y/x {expected_shape}; "
+            "rasterize source geometry directly at the XLB resolution"
+        )
+    lattice_map = np.asarray(heightmap, dtype=np.float64).clip(0.0, 1.0)
     height_cells = np.rint(lattice_map.T * grid_z).astype(int)
     height_cells[height_cells < 1] = 0
     x, y = np.where(height_cells > 0)
@@ -84,12 +84,11 @@ def _run(
     omega: float,
     steps: int,
     output_shape: tuple[int, int],
-    pedestrian_z: int,
+    pedestrian_z: float,
     average_window: int,
     average_every: int,
 ) -> np.ndarray:
     import warp as wp
-    from scipy.ndimage import zoom
     from xlb.operator.boundary_condition import (
         ExtrapolationOutflowBC,
         FullwayBounceBackBC,
@@ -146,13 +145,14 @@ def _run(
     else:
         _, velocity = context["macro"](warp_array_to_jax(f0))
     velocity = np.asarray(velocity)
-    speed = np.sqrt(velocity[0] ** 2 + velocity[1] ** 2 + velocity[2] ** 2)[:, :, pedestrian_z].T
-    output_y, output_x = output_shape
-    return zoom(
-        speed,
-        (output_y / speed.shape[0], output_x / speed.shape[1]),
-        order=1,
-    ).astype(np.float32)
+    speed_3d = np.sqrt(velocity[0] ** 2 + velocity[1] ** 2 + velocity[2] ** 2)
+    z0 = int(np.floor(pedestrian_z))
+    z1 = min(z0 + 1, speed_3d.shape[2] - 1)
+    fraction = pedestrian_z - z0
+    speed = ((1.0 - fraction) * speed_3d[:, :, z0] + fraction * speed_3d[:, :, z1]).T
+    if speed.shape != output_shape:
+        raise RuntimeError(f"XLB speed shape {speed.shape} does not match {output_shape}")
+    return speed.astype(np.float32)
 
 
 def simulate_heightmap_xlb(
@@ -162,18 +162,39 @@ def simulate_heightmap_xlb(
     wind: float,
     reynolds: float,
     steps: int,
-    reference_height: float,
-    pedestrian_z: int,
+    pedestrian_z: float,
     precision: str,
     average_window: int,
     average_every: int,
+    reference_height_lattice: float | None = None,
+    reference_height: float | None = None,
+    max_speed_ratio: float = 8.0,
 ) -> np.ndarray:
-    """Run one normalized urban height map and return pedestrian-level speed."""
+    """Run one normalized urban height map and return pedestrian-level speed.
+
+    reference_height is a compatibility input expressed as a fraction of the
+    vertical lattice. New callers should pass reference_height_lattice after
+    resolving their physical coordinate contract.
+    """
+
     heightmap = np.asarray(heightmap, dtype=np.float32)
+    if heightmap.ndim != 2 or min(heightmap.shape) < 2:
+        raise ValueError("heightmap must be a two-dimensional array")
+    if not np.isfinite(heightmap).all() or heightmap.min() < 0 or heightmap.max() > 1:
+        raise ValueError("heightmap values must be finite and lie in [0, 1]")
+    if not 1 <= pedestrian_z < grid_xyz[2] - 1:
+        raise ValueError("pedestrian_z must select an interior lattice slice")
+    if reference_height_lattice is None:
+        if reference_height is None:
+            raise ValueError("reference_height_lattice is required")
+        reference_height_lattice = reference_height * grid_xyz[2]
+    if reference_height_lattice <= 0 or max_speed_ratio <= 1:
+        raise ValueError("reference height and max_speed_ratio must be positive")
+
     context = _context(grid_xyz, wind, precision)
     solid = _solid_indices(heightmap, grid_xyz)
-    omega = 1.0 / (3.0 * wind * (reference_height * grid_xyz[2]) / reynolds + 0.5)
-    return _run(
+    omega = 1.0 / (3.0 * wind * reference_height_lattice / reynolds + 0.5)
+    speed = _run(
         context,
         solid,
         wind=wind,
@@ -184,3 +205,12 @@ def simulate_heightmap_xlb(
         average_window=average_window,
         average_every=average_every,
     )
+    if not np.isfinite(speed).all() or np.any(speed < 0):
+        raise RuntimeError("XLB produced a non-finite or negative speed field")
+    peak = float(np.max(speed))
+    limit = wind * max_speed_ratio
+    if peak > limit:
+        raise RuntimeError(
+            f"XLB result is numerically unstable: peak {peak:.6g} exceeds {limit:.6g}"
+        )
+    return speed

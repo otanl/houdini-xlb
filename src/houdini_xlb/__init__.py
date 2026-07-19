@@ -3,6 +3,7 @@
 from .client import XlbWorkerClient, default_python_executable, worker_environment
 from .config import XlbConfig, profile_names
 from .core import (
+    BACKEND_SIGNATURE,
     AnalysisResult,
     analysis_key,
     analyze_heightmap,
@@ -16,6 +17,7 @@ from .timeline import TimelineJob, TimelineScheduler
 
 __all__ = [
     "AnalysisResult",
+    "BACKEND_SIGNATURE",
     "XlbConfig",
     "XlbWorkerClient",
     "TimelineJob",

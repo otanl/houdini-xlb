@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 
-from .config import XlbConfig
+from .config import XlbConfig, profile_names
 from .core import AnalysisResult, analysis_key, load_cached_heightmap
 from .houdini import geometry_heightmap, session_client
 
@@ -326,21 +326,30 @@ def _building_geometry(node):
 
 def _analysis_input(node, control_node) -> tuple[np.ndarray, XlbConfig]:
     building_geometry = _building_geometry(node)
-    ny = int(control_node.evalParm("ny"))
-    nx = int(control_node.evalParm("nx"))
+    length_x_m = float(control_node.evalParm("lengthx"))
+    length_y_m = float(control_node.evalParm("lengthy"))
+    domain_height_m = float(control_node.evalParm("domainheight"))
+    profiles = profile_names()
+    profile = XlbConfig.profile(profiles[int(control_node.evalParm("profile"))])
+    config = profile.with_domain(
+        length_x_m=length_x_m,
+        length_y_m=length_y_m,
+        height_m=domain_height_m,
+        reference_height_m=float(control_node.evalParm("refheight")),
+        pedestrian_height_m=float(control_node.evalParm("pedheight")),
+    )
     if building_geometry is None or len(building_geometry.iterPoints()) == 0:
-        heightmap = np.zeros((ny, nx), dtype=np.float32)
+        heightmap = np.zeros((config.grid_y, config.grid_x), dtype=np.float32)
     else:
         heightmap = geometry_heightmap(
             building_geometry,
-            ny=ny,
-            nx=nx,
-            length_x=float(control_node.evalParm("lengthx")),
-            length_y=float(control_node.evalParm("lengthy")),
-            domain_height_m=float(control_node.evalParm("domainheight")),
+            ny=config.grid_y,
+            nx=config.grid_x,
+            length_x=length_x_m,
+            length_y=length_y_m,
+            domain_height_m=domain_height_m,
         )
-    profiles = ("draft", "preview", "quality")
-    return heightmap, XlbConfig.profile(profiles[int(control_node.evalParm("profile"))])
+    return heightmap, config
 
 
 def _job_for_control(

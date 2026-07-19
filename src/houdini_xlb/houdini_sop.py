@@ -2,16 +2,50 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from .config import profile_names
 
-_SOP_TEMPLATE = r"""
+_RUNTIME_PRELUDE = r"""
+import os
 import sys
+from pathlib import Path
 
 import hou
 
-package_src = r"__PACKAGE_SRC__"
-if package_src not in sys.path:
-    sys.path.insert(0, package_src)
+hip_dir = Path(hou.getenv("HIP") or ".").resolve()
+configured_source = os.environ.get("HOUDINI_XLB_SOURCE")
+if configured_source:
+    package_src = Path(configured_source).resolve()
+else:
+    package_src = next(
+        (
+            root / "src"
+            for root in (hip_dir, *hip_dir.parents)
+            if (root / "src" / "houdini_xlb").is_dir()
+        ),
+        None,
+    )
+if package_src is not None and str(package_src) not in sys.path:
+    sys.path.insert(0, str(package_src))
+
+from houdini_xlb.client import default_python_executable
+
+project_root = package_src.parent if package_src is not None else hip_dir
+configured_cache = os.environ.get("HOUDINI_XLB_CACHE")
+cache_dir = (
+    Path(configured_cache).resolve()
+    if configured_cache
+    else (project_root / "artifacts" / "cache" / "xlb").resolve()
+)
+configured_python = os.environ.get("HOUDINI_XLB_PYTHON")
+python_executable = (
+    Path(configured_python).resolve()
+    if configured_python
+    else default_python_executable(search_root=project_root)
+)
+"""
+
+_SOP_TEMPLATE = r"""
+__RUNTIME_PRELUDE__
 
 from houdini_xlb.timeline import cook_solver_sop
 
@@ -24,8 +58,8 @@ cook_solver_sop(
     hou.pwd(),
     control_node=control_node,
     refresh_path=r"__REFRESH_PATH__",
-    cache_dir=r"__CACHE_DIR__",
-    python_executable=r"__PYTHON_EXE__",
+    cache_dir=cache_dir,
+    python_executable=python_executable,
     merge_buildings=__MERGE_BUILDINGS__,
     role="__STATE_ROLE__",
 )
@@ -34,9 +68,6 @@ cook_solver_sop(
 
 def sop_code(
     *,
-    package_src: str | Path,
-    cache_dir: str | Path,
-    python_executable: str | Path,
     control_path: str | None = None,
     refresh_path: str | None = None,
     merge_buildings: bool = True,
@@ -44,9 +75,7 @@ def sop_code(
 ) -> str:
     """Render a Python SOP body for init, step, or display."""
     replacements = {
-        "__PACKAGE_SRC__": Path(package_src).resolve().as_posix(),
-        "__CACHE_DIR__": Path(cache_dir).resolve().as_posix(),
-        "__PYTHON_EXE__": Path(python_executable).resolve().as_posix(),
+        "__RUNTIME_PRELUDE__": _RUNTIME_PRELUDE.strip(),
         "__CONTROL_PATH__": control_path or "",
         "__REFRESH_PATH__": refresh_path or "",
         "__MERGE_BUILDINGS__": repr(bool(merge_buildings)),
@@ -61,24 +90,15 @@ def sop_code(
 def _module_callback(
     function: str,
     *,
-    package_src: str | Path,
-    cache_dir: str | Path,
-    python_executable: str | Path,
     refresh_path: str,
 ) -> str:
-    package = Path(package_src).resolve().as_posix()
-    cache = Path(cache_dir).resolve().as_posix()
-    python = Path(python_executable).resolve().as_posix()
     lines = (
-        "import sys",
-        f"package_src = r'{package}'",
-        "if package_src not in sys.path:",
-        "    sys.path.insert(0, package_src)",
+        _RUNTIME_PRELUDE.strip(),
         f"from houdini_xlb.timeline import {function}",
         (
             f"{function}(kwargs['node'], "
-            f"cache_dir=r'{cache}', "
-            f"python_executable=r'{python}', "
+            "cache_dir=cache_dir, "
+            "python_executable=python_executable, "
             f"refresh_path=r'{refresh_path}')"
         ),
     )
@@ -95,9 +115,6 @@ def _set_callback(template, code: str) -> None:
 def install_parameters(
     solver,
     *,
-    package_src: str | Path,
-    cache_dir: str | Path,
-    python_executable: str | Path,
     refresh_path: str,
 ) -> None:
     """Install automatic analysis, range bake, and display controls on a Solver SOP."""
@@ -106,9 +123,6 @@ def install_parameters(
     callback = {
         name: _module_callback(
             name,
-            package_src=package_src,
-            cache_dir=cache_dir,
-            python_executable=python_executable,
             refresh_path=refresh_path,
         )
         for name in (
@@ -171,29 +185,13 @@ def install_parameters(
     profile = hou.MenuParmTemplate(
         "profile",
         "Analysis Profile",
-        ("draft", "preview", "quality"),
-        ("draft", "preview", "quality"),
+        profile_names(),
+        profile_names(),
         default_value=0,
     )
     _set_callback(profile, callback["refresh_solver"])
     folder.addParmTemplate(profile)
 
-    ny = hou.IntParmTemplate(
-        "ny",
-        "Height-map Rows",
-        1,
-        default_value=(96,),
-        min=16,
-        max=1024,
-    )
-    nx = hou.IntParmTemplate(
-        "nx",
-        "Height-map Cols",
-        1,
-        default_value=(96,),
-        min=16,
-        max=1024,
-    )
     length_x = hou.FloatParmTemplate(
         "lengthx",
         "Domain X [m]",
@@ -215,7 +213,27 @@ def install_parameters(
         default_value=(40.0,),
         min=1.0,
     )
-    for template in (ny, nx, length_x, length_y, domain_height):
+    reference_height = hou.FloatParmTemplate(
+        "refheight",
+        "Reynolds Reference Height [m]",
+        1,
+        default_value=(10.0,),
+        min=0.1,
+    )
+    pedestrian_height = hou.FloatParmTemplate(
+        "pedheight",
+        "Result Height [m]",
+        1,
+        default_value=(1.5,),
+        min=0.1,
+    )
+    for template in (
+        length_x,
+        length_y,
+        domain_height,
+        reference_height,
+        pedestrian_height,
+    ):
         _set_callback(template, callback["refresh_solver"])
         folder.addParmTemplate(template)
 

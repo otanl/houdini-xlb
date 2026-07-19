@@ -16,7 +16,8 @@ import numpy as np
 from .config import XlbConfig
 
 Solver = Callable[[np.ndarray, XlbConfig], np.ndarray]
-CACHE_VERSION = 2
+CACHE_VERSION = 5
+BACKEND_SIGNATURE = "xlb-warp-kbc-d3q27-physical-v3"
 
 
 @dataclass(frozen=True)
@@ -26,15 +27,20 @@ class AnalysisResult:
     cache_hit: bool
     elapsed_s: float
     config: XlbConfig
+    backend_signature: str = BACKEND_SIGNATURE
     cache_path: Path | None = None
 
     def metadata(self) -> dict[str, object]:
         return {
             "cache_version": CACHE_VERSION,
+            "backend_signature": self.backend_signature,
             "cache_key": self.cache_key,
             "cache_hit": self.cache_hit,
             "elapsed_s": self.elapsed_s,
             "shape": list(self.speed.shape),
+            "cell_sizes_m": list(self.config.cell_sizes_m),
+            "pedestrian_z": self.config.pedestrian_z,
+            "resolved_pedestrian_height_m": self.config.resolved_pedestrian_height_m,
             "config": self.config.to_dict(),
             "cache_path": str(self.cache_path) if self.cache_path else None,
         }
@@ -58,10 +64,18 @@ def normalize_heights(height_m: np.ndarray, domain_height_m: float) -> np.ndarra
     return prepare_heightmap(np.asarray(height_m, dtype=np.float32) / domain_height_m)
 
 
-def analysis_key(heightmap: np.ndarray, config: XlbConfig) -> str:
+def analysis_key(
+    heightmap: np.ndarray,
+    config: XlbConfig,
+    *,
+    backend_signature: str = BACKEND_SIGNATURE,
+) -> str:
     heightmap = prepare_heightmap(heightmap)
+    if not backend_signature:
+        raise ValueError("backend_signature must not be empty")
     digest = hashlib.sha256()
     digest.update(f"houdini-xlb-cache-v{CACHE_VERSION}".encode())
+    digest.update(backend_signature.encode())
     digest.update(json.dumps(config.to_dict(), sort_keys=True).encode())
     digest.update(np.asarray(heightmap.shape, dtype=np.int64).tobytes())
     digest.update(heightmap.tobytes())
@@ -77,24 +91,64 @@ def _default_solver(heightmap: np.ndarray, config: XlbConfig) -> np.ndarray:
         wind=config.wind,
         reynolds=config.reynolds,
         steps=config.steps,
-        reference_height=config.reference_height,
         pedestrian_z=config.pedestrian_z,
         precision=config.precision,
         average_window=config.average_window,
         average_every=config.average_every,
+        reference_height_lattice=config.reference_height_lattice,
+        max_speed_ratio=config.max_speed_ratio,
     )
 
 
-def _read_cache(path: Path, config: XlbConfig, key: str) -> AnalysisResult:
+def _validate_speed(
+    speed: np.ndarray,
+    expected_shape: tuple[int, int],
+    config: XlbConfig,
+) -> np.ndarray:
+    speed = np.asarray(speed, dtype=np.float32)
+    if speed.shape != expected_shape:
+        raise ValueError(f"speed field has shape {speed.shape}, expected {expected_shape}")
+    if not np.isfinite(speed).all():
+        raise ValueError("speed field contains non-finite values")
+    if float(speed.min()) < -1e-7:
+        raise ValueError("speed field contains negative values")
+    peak = float(speed.max())
+    limit = config.wind * config.max_speed_ratio
+    if peak > limit:
+        raise ValueError(
+            f"speed field is numerically unstable: peak {peak:.6g} exceeds {limit:.6g}"
+        )
+    return np.maximum(speed, 0.0)
+
+
+def _read_cache(
+    path: Path,
+    heightmap: np.ndarray,
+    config: XlbConfig,
+    key: str,
+    backend_signature: str,
+) -> AnalysisResult:
     started = time.perf_counter()
     with np.load(path, allow_pickle=False) as data:
-        speed = np.asarray(data["speed"], dtype=np.float32)
+        speed = _validate_speed(data["speed"], heightmap.shape, config)
+        metadata = json.loads(str(np.asarray(data["metadata"]).item()))
+    expected = {
+        "cache_version": CACHE_VERSION,
+        "backend_signature": backend_signature,
+        "cache_key": key,
+        "shape": list(heightmap.shape),
+        "config": config.to_dict(),
+    }
+    for field, value in expected.items():
+        if metadata.get(field) != value:
+            raise ValueError(f"cache metadata mismatch for {field}")
     return AnalysisResult(
         speed=speed,
         cache_key=key,
         cache_hit=True,
         elapsed_s=time.perf_counter() - started,
         config=config,
+        backend_signature=backend_signature,
         cache_path=path,
     )
 
@@ -104,15 +158,25 @@ def load_cached_heightmap(
     config: XlbConfig | None = None,
     *,
     cache_dir: str | Path,
+    backend_signature: str = BACKEND_SIGNATURE,
 ) -> AnalysisResult | None:
     """Return an exact cached result without starting the XLB backend."""
     config = config or XlbConfig.profile("preview")
     heightmap = prepare_heightmap(heightmap)
-    key = analysis_key(heightmap, config)
+    if backend_signature == BACKEND_SIGNATURE:
+        expected_shape = (config.grid_y, config.grid_x)
+        if heightmap.shape != expected_shape:
+            raise ValueError(
+                f"heightmap shape {heightmap.shape} must equal XLB lattice y/x {expected_shape}"
+            )
+    key = analysis_key(heightmap, config, backend_signature=backend_signature)
     cache_path = Path(cache_dir).resolve() / f"{key}.npz"
     if not cache_path.exists():
         return None
-    return _read_cache(cache_path, config, key)
+    try:
+        return _read_cache(cache_path, heightmap, config, key, backend_signature)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError):
+        return None
 
 
 def _write_cache(path: Path, result: AnalysisResult) -> None:
@@ -138,31 +202,49 @@ def analyze_heightmap(
     *,
     cache_dir: str | Path | None = None,
     solver: Solver | None = None,
+    solver_signature: str | None = None,
 ) -> AnalysisResult:
     """Run or retrieve one deterministic XLB analysis."""
     config = config or XlbConfig.profile("preview")
     heightmap = prepare_heightmap(heightmap)
-    key = analysis_key(heightmap, config)
+    if solver is None:
+        if solver_signature is not None:
+            raise ValueError("solver_signature is valid only when a custom solver is supplied")
+        backend_signature = BACKEND_SIGNATURE
+        expected_shape = (config.grid_y, config.grid_x)
+        if heightmap.shape != expected_shape:
+            raise ValueError(
+                f"heightmap shape {heightmap.shape} must equal XLB lattice y/x {expected_shape}"
+            )
+    else:
+        if solver_signature is None or not solver_signature.strip():
+            raise ValueError("a stable solver_signature is required for a custom solver")
+        backend_signature = f"custom:{solver_signature.strip()}"
+    key = analysis_key(heightmap, config, backend_signature=backend_signature)
     cache_path = Path(cache_dir).resolve() / f"{key}.npz" if cache_dir is not None else None
     if cache_path is not None:
-        cached = load_cached_heightmap(heightmap, config, cache_dir=cache_dir)
+        cached = load_cached_heightmap(
+            heightmap,
+            config,
+            cache_dir=cache_dir,
+            backend_signature=backend_signature,
+        )
         if cached is not None:
             return cached
 
     started = time.perf_counter()
-    speed = np.asarray((solver or _default_solver)(heightmap, config), dtype=np.float32)
-    if speed.shape != heightmap.shape:
-        raise RuntimeError(
-            f"XLB returned {speed.shape}, expected the input height-map shape {heightmap.shape}"
-        )
-    if not np.isfinite(speed).all():
-        raise RuntimeError("XLB returned non-finite velocity values")
+    raw_speed = (solver or _default_solver)(heightmap, config)
+    try:
+        speed = _validate_speed(raw_speed, heightmap.shape, config)
+    except ValueError as exc:
+        raise RuntimeError(f"XLB returned an invalid result: {exc}") from exc
     result = AnalysisResult(
-        speed=np.maximum(speed, 0.0),
+        speed=speed,
         cache_key=key,
         cache_hit=False,
         elapsed_s=time.perf_counter() - started,
         config=config,
+        backend_signature=backend_signature,
         cache_path=cache_path,
     )
     if cache_path is not None:

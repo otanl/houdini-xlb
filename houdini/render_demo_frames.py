@@ -96,7 +96,6 @@ def main() -> None:
     result = solver.parent().node("xlb_result")
     if result is None:
         raise RuntimeError("xlb_result node was not created")
-    solver.parm("profile").set(0)
     solver.parm("vmax").set(args.vmax)
 
     camera = hou.node("/obj").createNode("cam", "readme_camera")
@@ -115,7 +114,8 @@ def main() -> None:
     buildings = [solver.parent().node(f"building{index}") for index in range(4)]
     if any(building is None for building in buildings):
         raise RuntimeError("the four study buildings were not created")
-    profile = XlbConfig.profile("draft")
+    profile_name = str(optimization["solver"]["profile"])
+    profile = XlbConfig.profile(profile_name)
     metadata: list[dict[str, object]] = []
 
     try:
@@ -197,6 +197,8 @@ def main() -> None:
             metadata.append(
                 {
                     "file": frame_path.name,
+                    "profile": profile_name,
+                    "pedestrian_height_m": profile.resolved_pedestrian_height_m,
                     "status": status,
                     "timeline_frame": timeline_frame,
                     "evaluation": int(milestone["evaluation"]),

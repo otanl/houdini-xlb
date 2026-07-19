@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from houdini_xlb import XlbConfig, analyze_heightmap
+from houdini_xlb import BACKEND_SIGNATURE, XlbConfig, analyze_heightmap, profile_names
 from houdini_xlb.demo_study import (
     Design,
     heightmap_from_design,
@@ -30,7 +30,7 @@ def main() -> None:
         type=Path,
         default=PROJECT_ROOT / "artifacts" / "cache" / "xlb",
     )
-    parser.add_argument("--profile", choices=("draft", "preview", "quality"), default="draft")
+    parser.add_argument("--profile", choices=profile_names(), default="study")
     args = parser.parse_args()
 
     config = XlbConfig.profile(args.profile)
@@ -38,7 +38,11 @@ def main() -> None:
 
     def evaluate(design: Design):
         result = analyze_heightmap(
-            heightmap_from_design(design),
+            heightmap_from_design(
+                design,
+                ny=config.grid_y,
+                nx=config.grid_x,
+            ),
             config,
             cache_dir=cache_dir,
         )
@@ -53,6 +57,7 @@ def main() -> None:
     optimization = optimize_study(evaluate)
     optimization["solver"] = {
         "engine": "XLB",
+        "backend_signature": BACKEND_SIGNATURE,
         "profile": args.profile,
         "config": config.to_dict(),
     }

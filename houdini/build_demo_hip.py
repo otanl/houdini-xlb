@@ -15,6 +15,7 @@ PACKAGE_SRC = PROJECT_ROOT / "src"
 if str(PACKAGE_SRC) not in sys.path:
     sys.path.insert(0, str(PACKAGE_SRC))
 
+from houdini_xlb.config import profile_names  # noqa: E402
 from houdini_xlb.demo_study import (  # noqa: E402
     END_FRAME,
     MILESTONE_FRAMES,
@@ -101,13 +102,9 @@ def _outline_rectangle(container, name, bounds, colour):
 def build_scene(
     name: str = "houdini_xlb",
     *,
-    python_executable: Path | None = None,
-    cache_dir: Path | None = None,
     optimization_path: Path | None = None,
 ) -> hou.SopNode:
     """Create a constrained best-so-far study and Prev_Frame-driven XLB Solver SOP."""
-    python_executable = (python_executable or default_worker_python()).resolve()
-    cache_dir = (cache_dir or PROJECT_ROOT / "artifacts" / "cache" / "xlb").resolve()
     optimization = load_optimization(optimization_path)
     milestones = optimization["milestones"]
     designs = [tuple(map(float, milestone["design"])) for milestone in milestones]
@@ -200,20 +197,16 @@ def build_scene(
 
     install_parameters(
         solver,
-        package_src=PACKAGE_SRC,
-        cache_dir=cache_dir,
-        python_executable=python_executable,
         refresh_path=display.path(),
     )
+    profile = str(optimization["solver"]["profile"])
+    solver.parm("profile").set(profile_names().index(profile))
     solver.parm("bakestart").set(START_FRAME)
     solver.parm("bakeend").set(END_FRAME)
     solver.parm("vmax").set(0.10)
 
     init.parm("python").set(
         sop_code(
-            package_src=PACKAGE_SRC,
-            cache_dir=cache_dir,
-            python_executable=python_executable,
             control_path=solver.path(),
             refresh_path=display.path(),
             merge_buildings=False,
@@ -226,9 +219,6 @@ def build_scene(
     step.setInput(1, solver_network.node("Input_2"))
     step.parm("python").set(
         sop_code(
-            package_src=PACKAGE_SRC,
-            cache_dir=cache_dir,
-            python_executable=python_executable,
             control_path=solver.path(),
             refresh_path=display.path(),
             merge_buildings=False,
@@ -240,9 +230,6 @@ def build_scene(
 
     result.parm("python").set(
         sop_code(
-            package_src=PACKAGE_SRC,
-            cache_dir=cache_dir,
-            python_executable=python_executable,
             control_path=solver.path(),
             refresh_path=display.path(),
             merge_buildings=True,
@@ -261,6 +248,7 @@ def build_scene(
         "Objective: maximize plaza cells in 0.55 <= U/Uin <= 1.20.\n"
         "Hard constraint: central ventilation route >= 95% of baseline; "
         f"minimum clearance = {minimum_clearance:.1f} m.\n"
+        "Study CFD: 96x96x38, 2400 steps, result height 1.5 m.\n"
         "Yellow = plaza target; cyan = ventilation route.\n"
         "Select xlb_solver and use Bake Range to populate the SHA cache.\n"
         "Timeline frames are optimization milestones, not physical CFD time."
@@ -312,9 +300,9 @@ def main() -> None:
             "or pass --python-executable"
         )
     output.parent.mkdir(parents=True, exist_ok=True)
+    os.environ["HOUDINI_XLB_PYTHON"] = str(python_executable)
+    os.environ["HOUDINI_XLB_CACHE"] = str(args.cache_dir.resolve())
     solver = build_scene(
-        python_executable=python_executable,
-        cache_dir=args.cache_dir,
         optimization_path=args.optimization,
     )
     result = solver.parent().node("xlb_result")
@@ -334,6 +322,7 @@ def main() -> None:
         if status not in expected_initial:
             raise RuntimeError(f"unexpected initial XLB SOP status: {status}")
         if args.run_xlb_smoke:
+            original_profile = int(solver.evalParm("profile"))
             solver.parm("profile").set(0)
             solver.parm("runxlb").pressButton()
             result.cook(force=True)
@@ -345,6 +334,7 @@ def main() -> None:
                 f"elapsed={result.geometry().attribValue('xlb_elapsed_s'):.3f}s "
                 f"cache_hit={result.geometry().attribValue('xlb_cache_hit')}"
             )
+            solver.parm("profile").set(original_profile)
         hou.hipFile.save(str(output))
         print(f"saved {output}; verified Solver status={status}")
     finally:

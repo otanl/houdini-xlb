@@ -117,7 +117,12 @@ def compose_frame(field_path: Path, item: dict[str, object]) -> Image.Image:
         fill="#84919b",
     )
     timing = "cache hit" if item["cache_hit"] else f"{item['elapsed_s']:.1f} s GPU"
-    draw.text((panel_x + 20, 271), f"XLB draft · {timing}", font=tiny, fill="#68d99a")
+    draw.text(
+        (panel_x + 20, 271),
+        f"XLB {item['profile']} | {float(item['pedestrian_height_m']):.1f} m | {timing}",
+        font=tiny,
+        fill="#68d99a",
+    )
 
     draw.text((panel_x + 20, 300), "PLAZA IN COMFORT BAND", font=small, fill="#ffb82e")
     comfort = float(item["comfort_fraction"]) * 100.0

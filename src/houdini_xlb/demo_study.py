@@ -17,6 +17,9 @@ from math import hypot
 
 import numpy as np
 
+from .config import XlbConfig, profile_names
+from .core import BACKEND_SIGNATURE
+
 DOMAIN_X_M = 100.0
 DOMAIN_Y_M = 100.0
 DOMAIN_HEIGHT_M = 40.0
@@ -42,7 +45,8 @@ LOWER_X_OPTIONS = (38.0, 50.0)
 LOWER_Y_OPTIONS = (30.0, 38.0)
 UPPER_X_OPTIONS = (38.0, 50.0)
 UPPER_Y_OPTIONS = (62.0, 70.0)
-BASE_DESIGN = (38.0, 30.0, 38.0, 70.0)
+# The baseline pinches the central route; the search can open it while moving mass downstream.
+BASE_DESIGN = (38.0, 38.0, 38.0, 62.0)
 SEARCH_SEED = 2
 
 Design = tuple[float, float, float, float]
@@ -364,6 +368,20 @@ def validate_optimization(data: dict[str, object]) -> None:
         for before, after in zip(best_objectives, best_objectives[1:], strict=False)
     ):
         raise ValueError("best-so-far objective is not monotone")
+    solver = data.get("solver")
+    if not isinstance(solver, dict) or solver.get("engine") != "XLB":
+        raise ValueError("demo optimization has no XLB solver provenance")
+    if solver.get("backend_signature") != BACKEND_SIGNATURE:
+        raise ValueError("demo optimization uses a stale XLB backend signature")
+    profile = solver.get("profile")
+    if profile not in profile_names():
+        raise ValueError("demo optimization uses an unknown analysis profile")
+    try:
+        stored_config = XlbConfig.from_dict(solver["config"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("demo optimization has an invalid XLB config") from exc
+    if stored_config != XlbConfig.profile(str(profile)):
+        raise ValueError("demo optimization config does not match its named profile")
     result = data.get("result")
     if not isinstance(result, dict):
         raise ValueError("demo optimization result is missing")
