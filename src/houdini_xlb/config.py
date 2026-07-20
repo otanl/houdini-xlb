@@ -29,6 +29,9 @@ class XlbConfig:
     average_every: int = 50
     max_speed_ratio: float = 8.0
     isotropy_tolerance: float = 0.08
+    inlet_profile: str = "uniform"
+    inlet_power_alpha: float = 0.16
+    initial_condition: str = "rest"
 
     def __post_init__(self) -> None:
         if min(self.grid_x, self.grid_y, self.grid_z) < 8:
@@ -49,6 +52,12 @@ class XlbConfig:
             raise ValueError("max_speed_ratio must be greater than one")
         if not 0 <= self.isotropy_tolerance < 1:
             raise ValueError("isotropy_tolerance must lie in [0, 1)")
+        if self.inlet_profile not in {"uniform", "power_law"}:
+            raise ValueError("inlet_profile must be 'uniform' or 'power_law'")
+        if not 0 <= self.inlet_power_alpha <= 1:
+            raise ValueError("inlet_power_alpha must lie in [0, 1]")
+        if self.initial_condition not in {"rest", "uniform_reference"}:
+            raise ValueError("initial_condition must be 'rest' or 'uniform_reference'")
 
         cell_sizes = self.cell_sizes_m
         anisotropy = max(cell_sizes) / min(cell_sizes) - 1.0

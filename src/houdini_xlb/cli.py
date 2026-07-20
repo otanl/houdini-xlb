@@ -41,6 +41,9 @@ def _configured_profile(args: argparse.Namespace) -> XlbConfig:
             "average_window": args.average_window,
             "average_every": args.average_every,
             "max_speed_ratio": args.max_speed_ratio,
+            "inlet_profile": args.inlet_profile,
+            "inlet_power_alpha": args.inlet_power_alpha,
+            "initial_condition": args.initial_condition,
         }.items()
         if value is not None
     }
@@ -67,6 +70,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--average-window", type=int)
     parser.add_argument("--average-every", type=int)
     parser.add_argument("--max-speed-ratio", type=float)
+    parser.add_argument("--inlet-profile", choices=("uniform", "power_law"))
+    parser.add_argument("--inlet-power-alpha", type=float)
+    parser.add_argument("--initial-condition", choices=("rest", "uniform_reference"))
     parser.add_argument("--cache", type=Path, default=Path("artifacts/houdini/cache/xlb"))
     parser.add_argument("--out", type=Path, default=Path("outputs/houdini_xlb_result.npz"))
     return parser

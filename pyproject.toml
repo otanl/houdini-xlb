@@ -1,6 +1,6 @@
 [project]
 name = "houdini-xlb"
-version = "0.4.0"
+version = "0.5.0"
 description = "Solver-SOP timeline integration for cached XLB wind analysis."
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
@@ -18,6 +18,7 @@ demo = ["pillow>=10"]
 
 [project.scripts]
 houdini-xlb = "houdini_xlb.cli:main"
+houdini-xlb-validate = "houdini_xlb.validation_cli:main"
 
 [build-system]
 requires = ["hatchling"]

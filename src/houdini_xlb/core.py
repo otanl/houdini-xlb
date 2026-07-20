@@ -16,7 +16,7 @@ import numpy as np
 from .config import XlbConfig
 
 Solver = Callable[[np.ndarray, XlbConfig], np.ndarray]
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 BACKEND_SIGNATURE = "xlb-warp-kbc-d3q27-physical-v3"
 
 
@@ -97,6 +97,9 @@ def _default_solver(heightmap: np.ndarray, config: XlbConfig) -> np.ndarray:
         average_every=config.average_every,
         reference_height_lattice=config.reference_height_lattice,
         max_speed_ratio=config.max_speed_ratio,
+        inlet_profile=config.inlet_profile,
+        inlet_power_alpha=config.inlet_power_alpha,
+        initial_condition=config.initial_condition,
     )
 
 

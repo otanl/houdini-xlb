@@ -176,8 +176,11 @@ Solver stateと`xlb_result`のdetail attribute `xlb_status`、`xlb_job_state`、
 x・y・zセルはほぼ立方体とし、1.5 m面は隣接z sliceを線形補間します。旧座標契約の
 キャッシュはbackend署名とcache versionにより再利用されません。
 
-現在のXLB設定はKBC衝突モデル、床・上面・側面のno-slip壁、一定速度流入を使います。
-大気境界層、粗度、流入乱れ、上空・側方開境界、十分な周辺paddingは未実装です。
+通常のHoudini解析profileはKBC衝突モデル、床・上面・側面のno-slip壁、一定速度流入を
+使います。検証CLIだけはAIJ平均流入にfitしたべき乗則と一様基準流による初期化を使い、
+`--collision-model` でKBCとSmagorinsky LES-BGKを明示的に比較できます。これは感度試験で、
+対話profileの既定モデルを自動で切り替えるものではありません。大気境界層の流入乱れ、
+粗度、上空・側方開境界、十分な周辺paddingは未実装です。
 したがってprofile名は計算量の段階を表すだけで、工学的妥当性や収束を保証しません。
 
 XLBの所要時間はGPU、格子、収束・平均化条件に依存します。したがって
@@ -231,6 +234,23 @@ Houdiniを介さず、同じ常駐workerと実XLBを確認:
 
     $env:PYTHONUTF8=1
     .venv\Scripts\python.exe projects\houdini-xlb\scripts\smoke_worker.py
+
+## 外部風の検証
+
+AIJの公開風洞データ Case A（1:1:2の単体建物）に対して、格子・平均時間を変えながら
+3D平均速度場を186測点で比較する検証CLIを同梱しています。引数なしではGPUを回さず、
+計算規模のplanだけを作ります。
+
+    $env:PYTHONUTF8=1
+    .venv\Scripts\houdini-xlb-validate.exe --cells-per-b 8,12,16
+    .venv\Scripts\houdini-xlb-validate.exe --run --cells-per-b 8,12,16 --time-check
+    .venv\Scripts\houdini-xlb-validate.exe --run --cells-per-b 6,8 --collision-model SmagorinskyLESBGK --time-check
+
+既存の対話profileとは別に、AIJ平均流入を近似するべき乗則、空領域での実到達流入、
+3D場キャッシュ、測点補間、格子・時間収束gateを使います。流入乱れと境界条件感度は
+まだ未解決なので、全gate通過時も結果は `provisional_pass` です。2026-07-20の初期screeningは
+Smagorinskyで発散を抑えましたが `provisional_fail` であり、検証済みではありません。条件、
+実測した誤差、計算量、制約は[検証プロトコル](docs/VALIDATION.md)を参照してください。
 
 ## 公開境界
 

@@ -14,14 +14,17 @@ from .core import (
 from .houdini_sop import install_parameters, sop_code
 from .raster import rasterize_points
 from .timeline import TimelineJob, TimelineScheduler
+from .validation import AijCaseA, ValidationCriteria
 
 __all__ = [
     "AnalysisResult",
+    "AijCaseA",
     "BACKEND_SIGNATURE",
     "XlbConfig",
     "XlbWorkerClient",
     "TimelineJob",
     "TimelineScheduler",
+    "ValidationCriteria",
     "analysis_key",
     "analyze_heightmap",
     "default_python_executable",
